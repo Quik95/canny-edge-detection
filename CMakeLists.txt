@@ -10,7 +10,13 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(ENV{UBSAN_OPTIONS} "abort_on_error=1:halt_on_error=1")
 endif ()
 
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -fanalyzer -g3 -fsanitize=address -fsanitize=leak -fsanitize=undefined -fsanitize-trap=undefined")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g3 -fsanitize=address -fsanitize=leak -fsanitize=undefined -fsanitize-trap=undefined")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native -flto")
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/vendor/lodepng)
+add_library(lodepng ${CMAKE_CURRENT_SOURCE_DIR}/vendor/lodepng/lodepng.c)
+
 add_executable(edge_detection main.c)
+target_compile_options(edge_detection PRIVATE -fanalyzer)
+
+target_link_libraries(edge_detection lodepng)
