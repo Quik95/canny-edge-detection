@@ -95,7 +95,7 @@ int main() {
     image_float = apply_edge_histeresis(image_float, width, height);
 
     image = float_array_to_uint8_array(image_float, image, width, height);
-    error = lodepng_encode24_file("/tmp/test_out.png", image, width, height);
+    error = lodepng_encode_file("/tmp/test_out.png", image, width, height, LCT_GREY, 8);
     if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
 
     free(image_float);
