@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <stdint.h>
+#include <float.h>
 #include "vendor/lodepng/lodepng.h"
 #include <math.h>
 
@@ -33,6 +34,11 @@ static void write_intermediate_image(const char *filename, const float *image, u
 
 #endif
 
+#define LOW_THRESHOLD_RATIO 0.05f
+#define HIGH_THRESHOLD_RATIO 0.09f
+#define WEAK_EDGE_PIXEL 0.33f
+#define STRONG_EDGE_PIXEL 1.0f
+
 float *apply_gaussian_filter(float *image, uint32_t width, uint32_t height);
 
 float *convert_to_grayscale(float *image, uint32_t width, uint32_t height);
@@ -40,6 +46,8 @@ float *convert_to_grayscale(float *image, uint32_t width, uint32_t height);
 float *apply_sobel_filter(float *image, uint32_t width, uint32_t height);
 
 float *apply_edge_thinning(float *image, uint32_t width, uint32_t height);
+
+float *apply_double_threshold(float *image, uint32_t width, uint32_t height);
 
 // for sigma = 1.0
 #define GAUSSIAN_KERNEL_SIZE 5
@@ -81,6 +89,7 @@ int main() {
     image_float = apply_gaussian_filter(image_float, width, height);
     image_float = apply_sobel_filter(image_float, width, height);
     image_float = apply_edge_thinning(image_float, width, height);
+    image_float = apply_double_threshold(image_float, width, height);
 
     image = float_array_to_uint8_array(image_float, image, width, height);
     error = lodepng_encode24_file("/tmp/test_out.png", image, width, height);
@@ -209,6 +218,35 @@ float *apply_edge_thinning(float *image, uint32_t width, uint32_t height) {
 
 #ifdef WRITE_INTERMEDIATE_IMAGES
     write_intermediate_image("/tmp/test_after_edge_thinning.png", new_image, width, height);
+#endif
+
+    free(image);
+    return new_image;
+}
+
+float *apply_double_threshold(float *image, uint32_t width, uint32_t height) {
+    float *new_image = malloc(width * height * sizeof(float));
+
+    float high = FLT_MIN;
+    for (uint32_t i = 0; i < width * height; i++) {
+        if (image[i] > high) high = image[i];
+    }
+
+    float high_threshold = high * HIGH_THRESHOLD_RATIO;
+    float low_threshold = high_threshold * LOW_THRESHOLD_RATIO;
+
+    for (uint32_t i = 0; i < width * height; i++) {
+        if (image[i] > high_threshold) {
+            new_image[i] = STRONG_EDGE_PIXEL;
+        } else if (image[i] > low_threshold) {
+            new_image[i] = WEAK_EDGE_PIXEL;
+        } else {
+            new_image[i] = 0.0f;
+        }
+    }
+
+#ifdef WRITE_INTERMEDIATE_IMAGES
+    write_intermediate_image("/tmp/test_after_double_threshold.png", new_image, width, height);
 #endif
 
     free(image);
