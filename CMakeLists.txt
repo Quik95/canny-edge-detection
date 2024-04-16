@@ -19,4 +19,5 @@ add_library(lodepng ${CMAKE_CURRENT_SOURCE_DIR}/vendor/lodepng/lodepng.c)
 add_executable(edge_detection main.c)
 target_compile_options(edge_detection PRIVATE -fanalyzer)
 
+target_link_libraries(edge_detection m)
 target_link_libraries(edge_detection lodepng)
