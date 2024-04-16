@@ -49,6 +49,8 @@ float *apply_edge_thinning(float *image, uint32_t width, uint32_t height);
 
 float *apply_double_threshold(float *image, uint32_t width, uint32_t height);
 
+float *apply_edge_histeresis(float *image, uint32_t width, uint32_t height);
+
 // for sigma = 1.0
 #define GAUSSIAN_KERNEL_SIZE 5
 static const float gaussian_kernel[5][5] = {
@@ -90,6 +92,7 @@ int main() {
     image_float = apply_sobel_filter(image_float, width, height);
     image_float = apply_edge_thinning(image_float, width, height);
     image_float = apply_double_threshold(image_float, width, height);
+    image_float = apply_edge_histeresis(image_float, width, height);
 
     image = float_array_to_uint8_array(image_float, image, width, height);
     error = lodepng_encode24_file("/tmp/test_out.png", image, width, height);
@@ -247,6 +250,38 @@ float *apply_double_threshold(float *image, uint32_t width, uint32_t height) {
 
 #ifdef WRITE_INTERMEDIATE_IMAGES
     write_intermediate_image("/tmp/test_after_double_threshold.png", new_image, width, height);
+#endif
+
+    free(image);
+    return new_image;
+}
+
+float *apply_edge_histeresis(float *image, uint32_t width, uint32_t height) {
+    float *new_image = malloc(width * height * sizeof(float));
+
+    for (int y = 0; y < (int) height; y++) {
+        for (int x = 0; x < (int) width; x++) {
+            if (image[y * width + x] == WEAK_EDGE_PIXEL) {
+                if (image[calculate_index_with_wrap_around(x + 1, y, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x - 1, y, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x, y + 1, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x, y - 1, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x + 1, y + 1, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x - 1, y - 1, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x - 1, y + 1, width, height)] == STRONG_EDGE_PIXEL ||
+                    image[calculate_index_with_wrap_around(x + 1, y - 1, width, height)] == STRONG_EDGE_PIXEL) {
+                    new_image[y * width + x] = STRONG_EDGE_PIXEL;
+                } else {
+                    new_image[y * width + x] = 0.0f;
+                }
+            } else {
+                new_image[y * width + x] = image[y * width + x];
+            }
+        }
+    }
+
+#ifdef WRITE_INTERMEDIATE_IMAGES
+    write_intermediate_image("/tmp/test_after_edge_histeresis.png", new_image, width, height);
 #endif
 
     free(image);
