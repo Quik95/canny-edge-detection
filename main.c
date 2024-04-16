@@ -5,7 +5,7 @@
 #include "vendor/lodepng/lodepng.h"
 #include <math.h>
 
-#define WRITE_INTERMEDIATE_IMAGES 1
+//#define WRITE_INTERMEDIATE_IMAGES
 
 static uint8_t *float_array_to_uint8_array(const float *in, uint8_t *out, uint32_t width, uint32_t height) {
     for (uint32_t i = 0; i < width * height; i++) {
@@ -34,8 +34,8 @@ static void write_intermediate_image(const char *filename, const float *image, u
 
 #endif
 
-#define LOW_THRESHOLD_RATIO 0.05f
-#define HIGH_THRESHOLD_RATIO 0.09f
+#define LOW_THRESHOLD_RATIO 0.027f
+#define HIGH_THRESHOLD_RATIO 0.064f
 #define WEAK_EDGE_PIXEL 0.33f
 #define STRONG_EDGE_PIXEL 1.0f
 
