@@ -39,6 +39,8 @@ float *convert_to_grayscale(float *image, uint32_t width, uint32_t height);
 
 float *apply_sobel_filter(float *image, uint32_t width, uint32_t height);
 
+float *apply_edge_thinning(float *image, uint32_t width, uint32_t height);
+
 // for sigma = 1.0
 #define GAUSSIAN_KERNEL_SIZE 5
 static const float gaussian_kernel[5][5] = {
@@ -78,6 +80,7 @@ int main() {
     image_float = convert_to_grayscale(image_float, width, height);
     image_float = apply_gaussian_filter(image_float, width, height);
     image_float = apply_sobel_filter(image_float, width, height);
+    image_float = apply_edge_thinning(image_float, width, height);
 
     image = float_array_to_uint8_array(image_float, image, width, height);
     error = lodepng_encode24_file("/tmp/test_out.png", image, width, height);
@@ -153,14 +156,59 @@ float *apply_sobel_filter(float *image, uint32_t width, uint32_t height) {
 
             float magnitude = sqrtf(sobel_x * sobel_x + sobel_y * sobel_y);
             float orientation = atan2f(sobel_y, sobel_x);
+            orientation = orientation * (180.0f / (float) M_PI); // convert to radians
+            float orientation_rounded = roundf(orientation / 45.0f) * 45.0f;
+            orientation_rounded = fmodf(orientation_rounded + 180.0f, 180.0f); // convert to 0-180
             new_image[y * width + x] = magnitude;
-            new_image[width * height + y * width + x] = orientation;
+            new_image[width * height + y * width + x] = orientation_rounded;
         }
     }
 
 #ifdef WRITE_INTERMEDIATE_IMAGES
     write_intermediate_image("/tmp/test_after_sobel_intensity_filter.png", new_image, width, height);
     write_intermediate_image("/tmp/test_after_sobel_orientation_filter.png", new_image + width * height, width, height);
+#endif
+
+    free(image);
+    return new_image;
+}
+
+float *apply_edge_thinning(float *image, uint32_t width, uint32_t height) {
+    float *new_image = malloc(width * height * sizeof(float));
+
+    for (int y = 0; y < (int) height; y++) {
+        for (int x = 0; x < (int) width; x++) {
+            float q = 255.0f;
+            float r = 255.0f;
+            uint32_t angle_index = width * height + y * width + x;
+            float angle = image[angle_index];
+
+            // angle 0
+            if (angle >= 0 && angle < 22.5) {
+                q = image[calculate_index_with_wrap_around(x + 1, y, width, height)];
+                r = image[calculate_index_with_wrap_around(x - 1, y, width, height)];
+            } else if (angle >= 22.5 && angle < 67.5) { // angle 45
+                q = image[calculate_index_with_wrap_around(x - 1, y + 1, width, height)];
+                r = image[calculate_index_with_wrap_around(x + 1, y - 1, width, height)];
+            } else if (angle >= 67.5 && angle < 112.5) { // angle 90
+                q = image[calculate_index_with_wrap_around(x, y + 1, width, height)];
+                r = image[calculate_index_with_wrap_around(x, y - 1, width, height)];
+            } else if (angle >= 112.5 && angle < 157.5) { // angle 135
+                q = image[calculate_index_with_wrap_around(x - 1, y - 1, width, height)];
+                r = image[calculate_index_with_wrap_around(x + 1, y + 1, width, height)];
+            }
+
+            float intensity = image[y * width + x];
+            if (intensity >= q && intensity >= r) {
+                new_image[y * width + x] = intensity;
+            } else {
+                new_image[y * width + x] = 0.0f;
+            }
+        }
+    }
+
+#ifdef WRITE_INTERMEDIATE_IMAGES
+    write_intermediate_image("/tmp/test_after_edge_thinning.png", new_image, width, height);
 #endif
 
     free(image);
