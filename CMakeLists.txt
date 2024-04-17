@@ -3,7 +3,7 @@ project(edge_detection C)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_COMPILER gcc)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused -Wno-unknown-pragmas -fno-omit-frame-pointer")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g3 -fopenmp -Wall -Wextra -Wno-unused -Wno-unknown-pragmas -fno-omit-frame-pointer")
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(ENV{ASAN_OPTIONS} "abort_on_error=1:halt_on_error=1")
