@@ -7,7 +7,7 @@
 float *convertToFloatArray(const uint8_t *array, size_t size) {
     float *result = (float *) malloc(size * sizeof(float));
     for (size_t i = 0; i < size; i++) {
-        result[i] = (float) array[i];
+        result[i] = (float) array[i] / 255.0f;
     }
     return result;
 }
@@ -15,7 +15,7 @@ float *convertToFloatArray(const uint8_t *array, size_t size) {
 uint8_t *convertToByteArray(const float *array, size_t size) {
     uint8_t *result = (uint8_t *) malloc(size * sizeof(uint8_t));
     for (size_t i = 0; i < size; i++) {
-        result[i] = (uint8_t) array[i];
+        result[i] = (uint8_t) (array[i] * 255.0f);
     }
     return result;
 }
@@ -75,7 +75,7 @@ cl_kernel createOpenCLKernel(cl_context context, cl_device_id device, const char
     }
 
     cl_int kernelResult;
-    cl_kernel kernel = clCreateKernel(program, "grayscale_image", &kernelResult);
+    cl_kernel kernel = clCreateKernel(program, kernelName, &kernelResult);
     assert(kernelResult == CL_SUCCESS);
     return kernel;
 }
@@ -115,35 +115,44 @@ int main() {
     const char *programSource = loadProgramSource("compute.cl");
 
     cl_int imageResult;
-    cl_mem image = clCreateBuffer(context, CL_MEM_READ_ONLY, width * height * 3 * sizeof(float), nullptr, &imageResult);
+    cl_mem image = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * 3 * sizeof(float), nullptr,
+                                  &imageResult);
     assert(imageResult == CL_SUCCESS);
     cl_int enqueueResult = clEnqueueWriteBuffer(queue, image, CL_TRUE, 0, width * height * 3 * sizeof(float),
                                                 imageFloatBuffer, 0, nullptr, nullptr);
     assert(enqueueResult == CL_SUCCESS);
 
     cl_int outputImageResult;
-    cl_mem outputImage = clCreateBuffer(context, CL_MEM_WRITE_ONLY, width * height * sizeof(float), nullptr,
-                                        &outputImageResult);
+    cl_mem grayscaleOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float), nullptr,
+                                                  &outputImageResult);
+    assert(outputImageResult == CL_SUCCESS);
+    cl_mem gaussianOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float), nullptr,
+                                                 &outputImageResult);
     assert(outputImageResult == CL_SUCCESS);
 
-    cl_kernel kernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
+    cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
+    cl_int err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &image);
+    err |= clSetKernelArg(grayscaleKernel, 1, sizeof(cl_mem), &grayscaleOutputBuffer);
+    assert(err == CL_SUCCESS);
 
-    cl_int kernelImageArgResult = clSetKernelArg(kernel, 0, sizeof(cl_mem), &image);
-    assert(kernelImageArgResult == CL_SUCCESS);
+    cl_kernel testKernel = createOpenCLKernel(context, device, programSource, "gaussian_blur");
+    err = clSetKernelArg(testKernel, 0, sizeof(cl_mem), &grayscaleOutputBuffer);
+    err |= clSetKernelArg(testKernel, 1, sizeof(cl_mem), &gaussianOutputBuffer);
+    assert(err == CL_SUCCESS);
 
-    cl_int kernelOutputImageArgResult = clSetKernelArg(kernel, 1, sizeof(cl_mem), &outputImage);
-    assert(kernelOutputImageArgResult == CL_SUCCESS);
-
-    size_t globalWorkSize = width * height;
-    size_t localWorkSize = 16;
-    cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, kernel, 1, nullptr, &globalWorkSize, &localWorkSize, 0,
+    size_t globalWorkSize[2] = {width, height};
+    size_t localWorkSize[2] = {16, 16};
+    cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
+                                                        localWorkSize, 0,
                                                         nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, testKernel, 2, nullptr, globalWorkSize, localWorkSize, 0,
+                                                  nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
     clFinish(queue);
 
     float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
-    cl_int readResult = clEnqueueReadBuffer(queue, outputImage, CL_TRUE, 0, width * height * sizeof(float),
+    cl_int readResult = clEnqueueReadBuffer(queue, gaussianOutputBuffer, CL_TRUE, 0, width * height * sizeof(float),
                                             outputImageBuffer, 0, nullptr, nullptr);
     assert(readResult == CL_SUCCESS);
 
