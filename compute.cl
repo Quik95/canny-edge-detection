@@ -131,3 +131,27 @@ __kernel void edge_thinning(
         outputImage[rowIndex * imageWidth + colIndex] = 0.0f;
     }
 }
+
+__kernel void double_thresholding(
+    __global float* inputImage,
+    __global float* outputImage
+) {
+    int colIndex = get_global_id(0);
+    int rowIndex = get_global_id(1);
+    int imageWidth = get_global_size(0);
+
+    float highThreshold = 0.2f;
+    float lowThreshold = 0.1f;
+
+    float strongEdgePixel = 1.0f;
+    float weakEdgePixel = 0.5f;
+
+    float intensity = inputImage[rowIndex * imageWidth + colIndex];
+    if (intensity >= highThreshold) {
+        outputImage[rowIndex * imageWidth + colIndex] = strongEdgePixel;
+    } else if (intensity >= lowThreshold) {
+        outputImage[rowIndex * imageWidth + colIndex] = weakEdgePixel;
+    } else {
+        outputImage[rowIndex * imageWidth + colIndex] = 0.0f;
+    }
+}
