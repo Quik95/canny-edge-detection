@@ -140,6 +140,10 @@ int main() {
                                                       nullptr,
                                                       &outputImageResult);
     assert(outputImageResult == CL_SUCCESS);
+    cl_mem edgeHisteresisBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float),
+                                                 nullptr,
+                                                 &outputImageResult);
+    assert(outputImageResult == CL_SUCCESS);
 
     cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
     cl_int err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &image);
@@ -166,6 +170,11 @@ int main() {
     err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &doubleThreshholdingBuffer);
     assert(err == CL_SUCCESS);
 
+    cl_kernel edge_histeresis = createOpenCLKernel(context, device, programSource, "edge_histeresis");
+    err = clSetKernelArg(edge_histeresis, 0, sizeof(cl_mem), &doubleThreshholdingBuffer);
+    err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &edgeHisteresisBuffer);
+    assert(err == CL_SUCCESS);
+
 
     size_t globalWorkSize[2] = {width, height};
     size_t localWorkSize[2] = {16, 16};
@@ -181,12 +190,14 @@ int main() {
     kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, localWorkSize,
                                                   0,
                                                   nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, localWorkSize, 0,
+                                                  nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
     clFinish(queue);
 
     float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
-    cl_int readResult = clEnqueueReadBuffer(queue, doubleThreshholdingBuffer, CL_TRUE, 0,
+    cl_int readResult = clEnqueueReadBuffer(queue, edgeHisteresisBuffer, CL_TRUE, 0,
                                             width * height * sizeof(float),
                                             outputImageBuffer, 0, nullptr, nullptr);
     assert(readResult == CL_SUCCESS);
