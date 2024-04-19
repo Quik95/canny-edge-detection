@@ -129,15 +129,23 @@ int main() {
     cl_mem gaussianOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float), nullptr,
                                                  &outputImageResult);
     assert(outputImageResult == CL_SUCCESS);
+    cl_mem sobelOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * width * height * sizeof(float), nullptr,
+                                              &outputImageResult);
+    assert(outputImageResult == CL_SUCCESS);
 
     cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
     cl_int err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &image);
     err |= clSetKernelArg(grayscaleKernel, 1, sizeof(cl_mem), &grayscaleOutputBuffer);
     assert(err == CL_SUCCESS);
 
-    cl_kernel testKernel = createOpenCLKernel(context, device, programSource, "gaussian_blur");
-    err = clSetKernelArg(testKernel, 0, sizeof(cl_mem), &grayscaleOutputBuffer);
-    err |= clSetKernelArg(testKernel, 1, sizeof(cl_mem), &gaussianOutputBuffer);
+    cl_kernel gaussian = createOpenCLKernel(context, device, programSource, "gaussian_blur");
+    err = clSetKernelArg(gaussian, 0, sizeof(cl_mem), &grayscaleOutputBuffer);
+    err |= clSetKernelArg(gaussian, 1, sizeof(cl_mem), &gaussianOutputBuffer);
+    assert(err == CL_SUCCESS);
+
+    cl_kernel sobel = createOpenCLKernel(context, device, programSource, "sobel_filter");
+    err = clSetKernelArg(sobel, 0, sizeof(cl_mem), &gaussianOutputBuffer);
+    err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &sobelOutputBuffer);
     assert(err == CL_SUCCESS);
 
     size_t globalWorkSize[2] = {width, height};
@@ -145,14 +153,16 @@ int main() {
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
                                                         localWorkSize, 0,
                                                         nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, testKernel, 2, nullptr, globalWorkSize, localWorkSize, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, gaussian, 2, nullptr, globalWorkSize, localWorkSize, 0,
+                                                  nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
     clFinish(queue);
 
     float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
-    cl_int readResult = clEnqueueReadBuffer(queue, gaussianOutputBuffer, CL_TRUE, 0, width * height * sizeof(float),
+    cl_int readResult = clEnqueueReadBuffer(queue, sobelOutputBuffer, CL_TRUE, 0, width * height * sizeof(float),
                                             outputImageBuffer, 0, nullptr, nullptr);
     assert(readResult == CL_SUCCESS);
 

@@ -48,3 +48,48 @@ __kernel void gaussian_blur(
     
     outputImage[rowIndex * imageWidth + colIndex] = clamp(newPixelValue, 0.0f, 1.0f);
 }
+
+__kernel void sobel_filter(
+    __global float* inputImage,
+    __global float* outputImage
+) {
+    int colIndex = get_global_id(0);
+    int rowIndex = get_global_id(1);
+    int imageWidth = get_global_size(0);
+
+    const float sobelKernelX[9] = {
+        -1.0f, 0.0f, 1.0f,
+        -2.0f, 0.0f, 2.0f,
+        -1.0f, 0.0f, 1.0f
+    };
+    const float sobelKernelY[9] = {
+        -1.0f, -2.0f, -1.0f,
+        0.0f, 0.0f, 0.0f,
+        1.0f, 2.0f, 1.0f
+    };
+
+    float sobelX = 0.0f;
+    float sobelY = 0.0f;
+
+    for (int i = -1; i <= 1; i++) {
+        for (int j = -1; j <= 1; j++) {
+            int neighborCol = colIndex + j;
+            int neighborRow = rowIndex + i;
+
+            if (neighborCol >= 0 && neighborCol < imageWidth && neighborRow >= 0) {
+                int neighborIndex = neighborRow * imageWidth + neighborCol;
+                sobelX += inputImage[neighborIndex] * sobelKernelX[(i + 1) * 3 + (j + 1)];
+                sobelY += inputImage[neighborIndex] * sobelKernelY[(i + 1) * 3 + (j + 1)];
+            }
+        }
+    }
+
+    float sobelMagnitude = sqrt(sobelX * sobelX + sobelY * sobelY);
+    float orientation = atan2(sobelY, sobelX);
+    orientation = orientation * (180.0f / M_PI);
+    float orientationRounded = round(orientation / 45.0f) * 45.0f;
+    orientation = fmod(orientationRounded + 180.0f, 180.0f);
+
+    outputImage[rowIndex * imageWidth + colIndex] = clamp(sobelMagnitude, 0.0f, 1.0f);
+    outputImage[rowIndex * imageWidth + colIndex + imageWidth * imageWidth] = clamp(orientation, 0.0f, 180.0f);
+}
