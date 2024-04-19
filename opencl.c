@@ -132,6 +132,10 @@ int main() {
     cl_mem sobelOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * width * height * sizeof(float), nullptr,
                                               &outputImageResult);
     assert(outputImageResult == CL_SUCCESS);
+    cl_mem edgeThinningOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float),
+                                                     nullptr,
+                                                     &outputImageResult);
+    assert(outputImageResult == CL_SUCCESS);
 
     cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
     cl_int err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &image);
@@ -148,6 +152,12 @@ int main() {
     err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &sobelOutputBuffer);
     assert(err == CL_SUCCESS);
 
+    cl_kernel edge_thinning = createOpenCLKernel(context, device, programSource, "edge_thinning");
+    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &sobelOutputBuffer);
+    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &edgeThinningOutputBuffer);
+    assert(err == CL_SUCCESS);
+
+
     size_t globalWorkSize[2] = {width, height};
     size_t localWorkSize[2] = {16, 16};
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
@@ -157,12 +167,14 @@ int main() {
                                                   nullptr, nullptr);
     kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, localWorkSize, 0,
+                                                  nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
     clFinish(queue);
 
     float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
-    cl_int readResult = clEnqueueReadBuffer(queue, sobelOutputBuffer, CL_TRUE, 0, width * height * sizeof(float),
+    cl_int readResult = clEnqueueReadBuffer(queue, edgeThinningOutputBuffer, CL_TRUE, 0, width * height * sizeof(float),
                                             outputImageBuffer, 0, nullptr, nullptr);
     assert(readResult == CL_SUCCESS);
 

@@ -25,7 +25,6 @@ __kernel void gaussian_blur(
     float newPixelValue = 0.0f;
 
     
-    // Gaussian blur static table
     const float gaussianTable[25] = {
             1/273.0f, 4/273.0f, 7/273.0f, 4/273.0f, 1/273.0f,
             4/273.0f, 16/273.0f, 26/273.0f, 16/273.0f, 4/273.0f,
@@ -92,4 +91,43 @@ __kernel void sobel_filter(
 
     outputImage[rowIndex * imageWidth + colIndex] = clamp(sobelMagnitude, 0.0f, 1.0f);
     outputImage[rowIndex * imageWidth + colIndex + imageWidth * imageWidth] = clamp(orientation, 0.0f, 180.0f);
+}
+
+__kernel void edge_thinning(
+    __global float* inputImage,
+    __global float* outputImage
+) {
+    int colIndex = get_global_id(0);
+    int rowIndex = get_global_id(1);
+    int imageWidth = get_global_size(0);
+
+    float q = 255.0f;
+    float r = 255.0f;
+
+    int angleIndex = rowIndex * imageWidth + colIndex + imageWidth * imageWidth;
+    float angle = inputImage[angleIndex];
+
+    if (angle >= 0 && angle < 22.5) {
+        q = inputImage[rowIndex * imageWidth + colIndex + 1];
+        r=  inputImage[rowIndex * imageWidth + colIndex - 1];
+    } else  if(angle >= 22.5 && angle < 67.5) {
+        q = inputImage[(rowIndex - 1) * imageWidth + colIndex - 1];
+        r = inputImage[(rowIndex + 1) * imageWidth + colIndex + 1];
+    } else if(angle >= 67.5 && angle < 112.5) {
+        q = inputImage[(rowIndex - 1) * imageWidth + colIndex];
+        r = inputImage[(rowIndex + 1) * imageWidth + colIndex];
+    } else if(angle >= 112.5 && angle < 157.5) {
+        q = inputImage[(rowIndex - 1) * imageWidth + colIndex + 1];
+        r = inputImage[(rowIndex + 1) * imageWidth + colIndex - 1];
+    } else if(angle >= 157.5 && angle <= 180.0) {
+        q = inputImage[rowIndex * imageWidth + colIndex - 1];
+        r = inputImage[rowIndex * imageWidth + colIndex + 1];
+    }
+
+    float intensity = inputImage[rowIndex * imageWidth + colIndex];
+    if (intensity >= q && intensity >= r) {
+        outputImage[rowIndex * imageWidth + colIndex] = intensity;
+    } else {
+        outputImage[rowIndex * imageWidth + colIndex] = 0.0f;
+    }
 }
