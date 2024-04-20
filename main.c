@@ -5,6 +5,7 @@
 #include "vendor/lodepng/lodepng.h"
 #include <math.h>
 #include <omp.h>
+#include <time.h>
 
 //#define WRITE_INTERMEDIATE_IMAGES
 
@@ -80,7 +81,7 @@ int main() {
 
     printf("Using %d threads\n", omp_get_max_threads());
 
-    error = lodepng_decode24_file(&image, &width, &height, "/tmp/test_alt2.png");
+    error = lodepng_decode24_file(&image, &width, &height, "/tmp/data2.png");
     if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
 
     // turn the image into a float array as it's easier to work with
@@ -89,6 +90,7 @@ int main() {
         image_float[i] = (float) image[i] / 255.0f;
     }
 
+    clock_t start = clock();
     printf("The loaded image has dimensions %u x %u\n", width, height);
     image_float = convert_to_grayscale(image_float, width, height);
     image_float = apply_gaussian_filter(image_float, width, height);
@@ -96,6 +98,7 @@ int main() {
     image_float = apply_edge_thinning(image_float, width, height);
     image_float = apply_double_threshold(image_float, width, height);
     image_float = apply_edge_histeresis(image_float, width, height);
+    printf("Time taken: %f ms\n", (double) (clock() - start) / CLOCKS_PER_SEC * 1000);
 
     image = float_array_to_uint8_array(image_float, image, width, height);
     error = lodepng_encode_file("/tmp/test_out.png", image, width, height, LCT_GREY, 8);

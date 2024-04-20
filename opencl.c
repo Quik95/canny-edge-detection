@@ -2,6 +2,7 @@
 #include <CL/opencl.h>
 #include <assert.h>
 #include <string.h>
+#include <time.h>
 #include "lodepng.h"
 
 float *convertToFloatArray(const uint8_t *array, size_t size) {
@@ -99,12 +100,13 @@ int main() {
     uint8_t *imageBuffer;
     uint32_t width, height;
 
-    uint32_t error = lodepng_decode24_file(&imageBuffer, &width, &height, "lenna.png");
+    uint32_t error = lodepng_decode24_file(&imageBuffer, &width, &height, "/tmp/data2.png");
     assert(error == 0);
 
     printf("Image width: %d height: %d\n", width, height);
     float *imageFloatBuffer = convertToFloatArray(imageBuffer, width * height * 3);
 
+    clock_t start = clock();
     cl_device_id device = getOpenCLDevice();
     cl_context context = createOpenCLContext(device);
 
@@ -115,92 +117,84 @@ int main() {
     const char *programSource = loadProgramSource("compute.cl");
 
     cl_int imageResult;
-    cl_mem image = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * 3 * sizeof(float), nullptr,
-                                  &imageResult);
+    cl_mem colorImageBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * 3 * sizeof(float), nullptr,
+                                             &imageResult);
     assert(imageResult == CL_SUCCESS);
-    cl_int enqueueResult = clEnqueueWriteBuffer(queue, image, CL_TRUE, 0, width * height * 3 * sizeof(float),
-                                                imageFloatBuffer, 0, nullptr, nullptr);
-    assert(enqueueResult == CL_SUCCESS);
 
-    cl_int outputImageResult;
-    cl_mem grayscaleOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float), nullptr,
-                                                  &outputImageResult);
-    assert(outputImageResult == CL_SUCCESS);
-    cl_mem gaussianOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float), nullptr,
-                                                 &outputImageResult);
-    assert(outputImageResult == CL_SUCCESS);
-    cl_mem sobelOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * width * height * sizeof(float), nullptr,
-                                              &outputImageResult);
-    assert(outputImageResult == CL_SUCCESS);
-    cl_mem edgeThinningOutputBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float),
-                                                     nullptr,
-                                                     &outputImageResult);
-    assert(outputImageResult == CL_SUCCESS);
-    cl_mem doubleThreshholdingBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float),
-                                                      nullptr,
-                                                      &outputImageResult);
-    assert(outputImageResult == CL_SUCCESS);
-    cl_mem edgeHisteresisBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * sizeof(float),
+    imageResult = clEnqueueWriteBuffer(queue, colorImageBuffer, CL_TRUE, 0, width * height * 3 * sizeof(float),
+                                       imageFloatBuffer, 0,
+                                       nullptr, nullptr);
+    assert(imageResult == CL_SUCCESS);
+
+    cl_mem auxillaryImageBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, width * height * 2 * sizeof(float),
                                                  nullptr,
-                                                 &outputImageResult);
-    assert(outputImageResult == CL_SUCCESS);
+                                                 &imageResult);
+    assert(imageResult == CL_SUCCESS);
+
 
     cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
-    cl_int err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &image);
-    err |= clSetKernelArg(grayscaleKernel, 1, sizeof(cl_mem), &grayscaleOutputBuffer);
+    cl_int err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &colorImageBuffer);
+    err |= clSetKernelArg(grayscaleKernel, 1, sizeof(cl_mem), &auxillaryImageBuffer);
     assert(err == CL_SUCCESS);
 
     cl_kernel gaussian = createOpenCLKernel(context, device, programSource, "gaussian_blur");
-    err = clSetKernelArg(gaussian, 0, sizeof(cl_mem), &grayscaleOutputBuffer);
-    err |= clSetKernelArg(gaussian, 1, sizeof(cl_mem), &gaussianOutputBuffer);
+    err = clSetKernelArg(gaussian, 0, sizeof(cl_mem), &auxillaryImageBuffer);
+    err |= clSetKernelArg(gaussian, 1, sizeof(cl_mem), &colorImageBuffer);
     assert(err == CL_SUCCESS);
 
     cl_kernel sobel = createOpenCLKernel(context, device, programSource, "sobel_filter");
-    err = clSetKernelArg(sobel, 0, sizeof(cl_mem), &gaussianOutputBuffer);
-    err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &sobelOutputBuffer);
+    err = clSetKernelArg(sobel, 0, sizeof(cl_mem), &colorImageBuffer);
+    err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &auxillaryImageBuffer);
     assert(err == CL_SUCCESS);
 
     cl_kernel edge_thinning = createOpenCLKernel(context, device, programSource, "edge_thinning");
-    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &sobelOutputBuffer);
-    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &edgeThinningOutputBuffer);
+    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &auxillaryImageBuffer);
+    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &colorImageBuffer);
     assert(err == CL_SUCCESS);
 
     cl_kernel double_thresholding = createOpenCLKernel(context, device, programSource, "double_thresholding");
-    err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &edgeThinningOutputBuffer);
-    err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &doubleThreshholdingBuffer);
+    err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &colorImageBuffer);
+    err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &auxillaryImageBuffer);
     assert(err == CL_SUCCESS);
 
     cl_kernel edge_histeresis = createOpenCLKernel(context, device, programSource, "edge_histeresis");
-    err = clSetKernelArg(edge_histeresis, 0, sizeof(cl_mem), &doubleThreshholdingBuffer);
-    err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &edgeHisteresisBuffer);
+    err = clSetKernelArg(edge_histeresis, 0, sizeof(cl_mem), &auxillaryImageBuffer);
+    err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &colorImageBuffer);
     assert(err == CL_SUCCESS);
 
 
     size_t globalWorkSize[2] = {width, height};
-    size_t localWorkSize[2] = {16, 16};
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
-                                                        localWorkSize, 0,
+                                                        nullptr, 0,
                                                         nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, gaussian, 2, nullptr, globalWorkSize, localWorkSize, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, gaussian, 2, nullptr, globalWorkSize, nullptr, 0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, localWorkSize, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, nullptr, 0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, localWorkSize, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, nullptr, 0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, localWorkSize,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, nullptr,
                                                   0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, localWorkSize, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, nullptr, 0,
                                                   nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
-    clFinish(queue);
 
     float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
-    cl_int readResult = clEnqueueReadBuffer(queue, edgeHisteresisBuffer, CL_TRUE, 0,
+    cl_int readResult = clEnqueueReadBuffer(queue, colorImageBuffer, CL_TRUE, 0,
                                             width * height * sizeof(float),
                                             outputImageBuffer, 0, nullptr, nullptr);
+//    cl_int readResult = clEnqueueReadBuffer(queue, auxillaryImageBuffer, CL_TRUE, 0,
+//                                            width * height * sizeof(float),
+//                                            outputImageBuffer, 0, nullptr, nullptr);
+
     assert(readResult == CL_SUCCESS);
+
+    printf("GPU configuration done, beginning compute...\n");
+    clFinish(queue);
+    clock_t end = clock();
+    printf("Compute done in %f miliseconds\n", (double) (end - start) / CLOCKS_PER_SEC * 1000);
 
     uint8_t *outputImageByteArray = convertToByteArray(outputImageBuffer, width * height);
     error = lodepng_encode_file("/tmp/lena_out.png", outputImageByteArray, width, height, LCT_GREY, 8);

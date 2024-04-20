@@ -55,6 +55,7 @@ __kernel void sobel_filter(
     int colIndex = get_global_id(0);
     int rowIndex = get_global_id(1);
     int imageWidth = get_global_size(0);
+    int imageHeight = get_global_size(1);
 
     const float sobelKernelX[9] = {
         -1.0f, 0.0f, 1.0f,
@@ -90,7 +91,7 @@ __kernel void sobel_filter(
     orientation = fmod(orientationRounded + 180.0f, 180.0f);
 
     outputImage[rowIndex * imageWidth + colIndex] = clamp(sobelMagnitude, 0.0f, 1.0f);
-    outputImage[rowIndex * imageWidth + colIndex + imageWidth * imageWidth] = clamp(orientation, 0.0f, 180.0f);
+    outputImage[rowIndex * imageWidth + colIndex + imageWidth * imageHeight] = clamp(orientation, 0.0f, 180.0f);
 }
 
 __kernel void edge_thinning(
@@ -100,12 +101,18 @@ __kernel void edge_thinning(
     int colIndex = get_global_id(0);
     int rowIndex = get_global_id(1);
     int imageWidth = get_global_size(0);
+    int imageHeight = get_global_size(1);
 
     float q = 255.0f;
     float r = 255.0f;
 
-    int angleIndex = rowIndex * imageWidth + colIndex + imageWidth * imageWidth;
+    int angleIndex = rowIndex * imageWidth + colIndex + imageWidth * imageHeight;
     float angle = inputImage[angleIndex];
+
+    if (colIndex < 4 || colIndex >= imageWidth - 4 || rowIndex < 4 || rowIndex >= imageHeight - 4) {
+        outputImage[rowIndex * imageWidth + colIndex] = 0.0f;
+        return;
+    }
 
     if (angle >= 0 && angle < 22.5) {
         q = inputImage[rowIndex * imageWidth + colIndex + 1];
@@ -145,12 +152,6 @@ __kernel void double_thresholding(
     int colIndex = get_global_id(0);
     int rowIndex = get_global_id(1);
     int imageWidth = get_global_size(0);
-
-    // float highThreshold = 0.2f;
-    // float lowThreshold = 0.1f;
-
-    // float strongEdgePixel = 1.0f;
-    // float weakEdgePixel = 0.5f;
 
     float intensity = inputImage[rowIndex * imageWidth + colIndex];
     if (intensity >= STRONG_EDGE_THRESHOLD) {
