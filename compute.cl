@@ -9,20 +9,16 @@ __kernel void grayscale_image(
     float4 pixel = read_imagef(inputImage, sampler, coord);
     float sum = 0.299f * pixel.x + 0.587f * pixel.y + 0.114f * pixel.z;
 
-    write_imagef(outputImage, coord, (float4)(sum, sum, sum, 1.0f));
+    write_imagef(outputImage, coord, (float4)(sum, 0.0f, 0.0f, 0.0f));
 }
 
 __kernel void gaussian_blur(
-    __global float* inputImage,
-    __global float* outputImage
+        read_only image2d_t inputImage,
+        write_only image2d_t outputImage
 ){
-    int colIndex = get_global_id(0);
-    int rowIndex = get_global_id(1);
-    int imageWidth = get_global_size(0);
-    
-    float newPixelValue = 0.0f;
+    int2 coord = (int2)(get_global_id(0), get_global_id(1));    
 
-    
+    float newPixelValue = 0.0f;
     const float gaussianTable[25] = {
             1/273.0f, 4/273.0f, 7/273.0f, 4/273.0f, 1/273.0f,
             4/273.0f, 16/273.0f, 26/273.0f, 16/273.0f, 4/273.0f,
@@ -31,22 +27,15 @@ __kernel void gaussian_blur(
             1/273.0f, 4/273.0f, 7/273.0f, 4/273.0f, 1/273.0f
     };
 
-    int index = rowIndex * imageWidth + colIndex;
     for (int i = -2; i <= 2; i++) {
         for (int j = -2; j <= 2; j++) {
-            int neighborCol = colIndex + j;
-            int neighborRow = rowIndex + i;
-            
-            if (neighborCol >= 0 && neighborCol < imageWidth && neighborRow >= 0) {
-                int neighborIndex = neighborRow * imageWidth + neighborCol;
-                newPixelValue += inputImage[neighborIndex] * gaussianTable[(i + 2) * 3 + (j + 2)];
-            } else {
-                newPixelValue += inputImage[index] * gaussianTable[(i + 2) * 3 + (j + 2)];
-            }
+            int2 neighborCoord = (int2)(coord.x + i, coord.y + j);
+            newPixelValue += read_imagef(inputImage, sampler, neighborCoord).x * gaussianTable[(i + 2) * 3 + (j + 2)];
         }
     }
 
-    outputImage[index] = clamp(newPixelValue, 0.0f, 1.0f);
+    newPixelValue = clamp(newPixelValue, 0.0f, 1.0f);
+    write_imagef(outputImage, coord, (float4)(newPixelValue, 0.0f, 0.0f, 0.0f));
 }
 
 __kernel void sobel_filter(
