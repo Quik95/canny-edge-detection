@@ -129,22 +129,20 @@ int main() {
     cl_image_desc imageDesc = {.image_type = CL_MEM_OBJECT_IMAGE2D, .image_width = width, .image_height = height};
 
     cl_int imageResult;
-    cl_mem colorImageBuffer = clCreateImage(context, CL_MEM_READ_WRITE, &imageFormat, &imageDesc,
-                                            nullptr, &imageResult);
+    cl_mem colorImageBuffer = clCreateImage(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, &imageFormat, &imageDesc,
+                                            imageFloatBuffer, &imageResult);
     printf("image result: %d\n", imageResult);
     assert(imageResult == CL_SUCCESS);
 
-    cl_mem auxiliaryImageBuffer = clCreateImage(context, CL_MEM_READ_WRITE, &grayscaleImageFormat,
-                                                &imageDesc, nullptr, &imageResult);
+    float *grayscaleImageBuffer = (float *) malloc(width * height * sizeof(float));
+    cl_mem auxiliaryImageBuffer = clCreateImage(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, &grayscaleImageFormat,
+                                                &imageDesc, grayscaleImageBuffer, &imageResult);
     assert(imageResult == CL_SUCCESS);
 
     size_t origin[3] = {0, 0, 0};
     size_t region[3] = {imageDesc.image_width, imageDesc.image_height, 1};
 
-    cl_int err = clEnqueueWriteImage(queue, colorImageBuffer, CL_TRUE, origin, region,
-                                     0, 0, imageFloatBuffer, 0, nullptr, nullptr);
-    assert(err == CL_SUCCESS);
-
+    cl_int err;
     cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
     err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &colorImageBuffer);
     err |= clSetKernelArg(grayscaleKernel, 1, sizeof(cl_mem), &auxiliaryImageBuffer);
@@ -209,7 +207,7 @@ int main() {
                              nullptr);
     assert(err == CL_SUCCESS);
 
-    printf("GPU configuration done, beginning compute...\n");
+    start = clock();
     clFinish(queue);
     clock_t end = clock();
     printf("Compute done in %f miliseconds\n", (double) (end - start) / CLOCKS_PER_SEC * 1000);
