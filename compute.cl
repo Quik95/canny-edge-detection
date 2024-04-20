@@ -1,17 +1,15 @@
+constant sampler_t
+sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_MIRRORED_REPEAT | CLK_FILTER_NEAREST;
+
 __kernel void grayscale_image(
-    __global float* inputImage,
-    __global float* outputImage
+        read_only image2d_t inputImage,
+        write_only image2d_t outputImage
 ){
-    int colIndex = get_global_id(0);
-    int rowIndex = get_global_id(1);
-    int imageWidth = get_global_size(0);
-    int index = rowIndex * imageWidth + colIndex;
-    
-    float red = inputImage[index * 3 + 0];
-    float green = inputImage[index * 3 + 1];
-    float blue = inputImage[index * 3 + 2];
-    float sum = 0.299f * red + 0.587f * green + 0.114f * blue;
-    outputImage[index] = sum;
+    int2 coord = (int2)(get_global_id(0), get_global_id(1));
+    float4 pixel = read_imagef(inputImage, sampler, coord);
+    float sum = 0.299f * pixel.x + 0.587f * pixel.y + 0.114f * pixel.z;
+
+    write_imagef(outputImage, coord, (float4)(sum, sum, sum, 1.0f));
 }
 
 __kernel void gaussian_blur(
