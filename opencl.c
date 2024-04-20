@@ -100,7 +100,7 @@ int main() {
     uint8_t *imageBuffer;
     uint32_t width, height;
 
-    uint32_t error = lodepng_decode24_file(&imageBuffer, &width, &height, "/tmp/data2.png");
+    uint32_t error = lodepng_decode24_file(&imageBuffer, &width, &height, "/tmp/test_picture.png");
     assert(error == 0);
 
     printf("Image width: %d height: %d\n", width, height);
