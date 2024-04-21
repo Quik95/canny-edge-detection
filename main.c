@@ -90,7 +90,9 @@ int main() {
         image_float[i] = (float) image[i] / 255.0f;
     }
 
-    clock_t start = clock();
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
     printf("The loaded image has dimensions %u x %u\n", width, height);
     image_float = convert_to_grayscale(image_float, width, height);
     image_float = apply_gaussian_filter(image_float, width, height);
@@ -98,7 +100,11 @@ int main() {
     image_float = apply_edge_thinning(image_float, width, height);
     image_float = apply_double_threshold(image_float, width, height);
     image_float = apply_edge_histeresis(image_float, width, height);
-    printf("Time taken: %f ms\n", (double) (clock() - start) / CLOCKS_PER_SEC * 1000);
+
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+#define TIME_IN_SECONDS(start, end) ((double) (end.tv_sec - start.tv_sec) + (double) (end.tv_nsec - start.tv_nsec) / 1000000000)
+    printf("Time taken: %f seconds\n", TIME_IN_SECONDS(start, end));
 
     image = float_array_to_uint8_array(image_float, image, width, height);
     error = lodepng_encode_file("/tmp/lena_out.png", image, width, height, LCT_GREY, 8);

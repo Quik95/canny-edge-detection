@@ -21,9 +21,9 @@ float *convertToFloatArray(const uint8_t *array, size_t size) {
 uint8_t *convertToByteArray(const float *array, size_t size) {
     uint8_t *result = (uint8_t *) malloc(size * sizeof(uint8_t));
     for (size_t i = 0; i < size; i += 4) {
-        result[i] = (uint8_t)(array[i] * 255.0f);
-        result[i + 1] = (uint8_t)(array[i + 1] * 255.0f);
-        result[i + 2] = (uint8_t)(array[i + 2] * 255.0f);
+        result[i] = (uint8_t) (array[i] * 255.0f);
+        result[i + 1] = (uint8_t) (array[i + 1] * 255.0f);
+        result[i + 2] = (uint8_t) (array[i + 2] * 255.0f);
         result[i + 3] = 255;
     }
     return result;
@@ -104,6 +104,7 @@ const char *loadProgramSource(const char *filename) {
 
 int main() {
     printf("We are running OpenCL code\n");
+    const char *programSource = loadProgramSource("compute.cl");
 
     uint8_t *imageBuffer;
     uint32_t width, height;
@@ -114,7 +115,8 @@ int main() {
     printf("Image width: %d height: %d\n", width, height);
     float *imageFloatBuffer = convertToFloatArray(imageBuffer, GET_IMAGE_SIZE(width, height));
 
-    clock_t start = clock();
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     cl_device_id device = getOpenCLDevice();
     cl_context context = createOpenCLContext(device);
 
@@ -122,7 +124,8 @@ int main() {
     cl_command_queue queue = clCreateCommandQueueWithProperties(context, device, nullptr, &commandQueueResult);
     assert(commandQueueResult == CL_SUCCESS);
 
-    const char *programSource = loadProgramSource("compute.cl");
+    struct timespec deviceSetupEnd;
+    clock_gettime(CLOCK_MONOTONIC, &deviceSetupEnd);
 
     cl_image_format imageFormat = {.image_channel_data_type = CL_FLOAT, .image_channel_order = CL_RGBA};
     cl_image_format grayscaleImageFormat = {.image_channel_data_type = CL_FLOAT, .image_channel_order = CL_INTENSITY};
@@ -143,6 +146,9 @@ int main() {
     cl_mem auxiliaryGrayscaleBuffer = clCreateImage(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
                                                     &grayscaleImageFormat,
                                                     &imageDesc, grayscaleAuxiliaryBuffer, &imageResult);
+
+    struct timespec memoryBuffersEnd;
+    clock_gettime(CLOCK_MONOTONIC, &memoryBuffersEnd);
 
     size_t origin[3] = {0, 0, 0};
     size_t region[3] = {imageDesc.image_width, imageDesc.image_height, 1};
@@ -178,7 +184,6 @@ int main() {
 //    err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &colorImageBuffer);
 //    assert(err == CL_SUCCESS);
 
-
     size_t globalWorkSize[2] = {width, height};
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
                                                         nullptr, 0,
@@ -196,8 +201,6 @@ int main() {
 //                                                  nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
-
-    float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
 //    float *outputImageBuffer = convertToFloatArray(auxiliaryBuffer, 3 * width * height);
 //    cl_int readResult = clEnqueueReadBuffer(queue, colorImageBuffer, CL_TRUE, 0,
 //                                            width * height * sizeof(float),
@@ -208,19 +211,32 @@ int main() {
 
 //    assert(readResult == CL_SUCCESS);
 
+
+    clFinish(queue);
+    struct timespec kernelComputeEnd;
+    clock_gettime(CLOCK_MONOTONIC, &kernelComputeEnd);
+
+    float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
     err = clEnqueueReadImage(queue, auxiliaryGrayscaleBuffer, CL_TRUE, origin, region, 0, 0, outputImageBuffer, 0,
                              nullptr,
                              nullptr);
     assert(err == CL_SUCCESS);
+    struct timespec imageCopyEnd;
+    clock_gettime(CLOCK_MONOTONIC, &imageCopyEnd);
 
-    start = clock();
-    clFinish(queue);
-    clock_t end = clock();
-    printf("Compute done in %f miliseconds\n", (double) (end - start) / CLOCKS_PER_SEC * 1000);
+#define TIME_IN_SECONDS(start, end) ((double) (end.tv_sec - start.tv_sec) + (double) (end.tv_nsec - start.tv_nsec) / 1000000000)
+
+    putc('\n', stdout);
+    printf("Device setup: %.5f seconds\n", TIME_IN_SECONDS(start, deviceSetupEnd));
+    printf("Memory buffers: %.5f seconds\n", TIME_IN_SECONDS(deviceSetupEnd, memoryBuffersEnd));
+    printf("Kernel compute: %.5f seconds\n", TIME_IN_SECONDS(memoryBuffersEnd, kernelComputeEnd));
+    printf("Image copy: %.5f seconds\n", TIME_IN_SECONDS(kernelComputeEnd, imageCopyEnd));
+    printf("Total time: %.5f seconds\n", TIME_IN_SECONDS(start, imageCopyEnd));
+    printf("Total time excluding device setup: %.5f seconds\n", TIME_IN_SECONDS(deviceSetupEnd, imageCopyEnd));
 
     uint8_t *outputImageByteArray = malloc(width * height * sizeof(uint8_t));
     for (size_t i = 0; i < width * height; i++) {
-        outputImageByteArray[i] = (uint8_t)(outputImageBuffer[i] * 255.0f);
+        outputImageByteArray[i] = (uint8_t) (outputImageBuffer[i] * 255.0f);
     }
     error = lodepng_encode_file("/tmp/lena_out.png", outputImageByteArray, width, height, LCT_GREY, 8);
     assert(error == 0);
