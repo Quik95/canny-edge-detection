@@ -40,8 +40,8 @@ __kernel void gaussian_blur(
 
 __kernel void sobel_filter(
         read_only image2d_t inputImage,
-        write_only image2d_t intensityImage,
-        write_only image2d_t orientationImage
+        __global float *intensityImage,
+        __global float *orientationImage
 ) {
     int2 coords = (int2)(get_global_id(0), get_global_id(1));
 
@@ -67,52 +67,55 @@ __kernel void sobel_filter(
     }
 
     float sobelMagnitude = sqrt(sobelX * sobelX + sobelY * sobelY);
+
     float orientation = atan2(sobelY, sobelX);
     orientation = orientation * (180.0f / M_PI);
-    float orientationRounded = round(orientation / 45.0f) * 45.0f;
-    orientation = fmod(orientationRounded + 180.0f, 180.0f);
+    orientation = round(orientation / 45.0f) * 45.0f;
+    orientation = fmod(orientation + 180.0f, 180.0f);
 
-    sobelMagnitude = clamp(sobelMagnitude, 0.0f, 1.0f);
-    orientation = clamp(orientation, 0.0f, 180.0f);
-
-    write_imagef(intensityImage, coords, (float4)(sobelMagnitude, 0.0f, 0.0f, 0.0f));
-    write_imagef(orientationImage, coords, (float4)(orientation, 0.0f, 0.0f, 0.0f));
+    intensityImage[coords.x + coords.y * get_global_size(0)] = sobelMagnitude;
+    orientationImage[coords.x + coords.y * get_global_size(0)] = orientation;
 }
 
+#define CHECK_INDEX(index, imageWidth, imageHeight, fallback) ((index >= 0 && index < imageWidth * imageHeight) ? index : fallback)
+
 __kernel void edge_thinning(
-        read_only image2d_t intensityImage,
-        read_only image2d_t orientationImage,
-        write_only image2d_t outputImage
+        __global float *intensityImage,
+        __global float *orientationImage,
+        __global float *outputBuffer
 ) {
     int2 coords = (int2)(get_global_id(0), get_global_id(1));
      
     float q = 255.0f;
     float r = 255.0f;
 
-    float angle = read_imagef(orientationImage, sampler, coords).x;
+    int angleIndex = coords.x + coords.y * get_global_size(0);
+    float angle = orientationImage[angleIndex];
+
+#define READ_ORIENTATION_WITH_FALLBACK(x, y) (intensityImage[CHECK_INDEX(x + y * get_global_size(0), get_global_size(0), get_global_size(1), angleIndex)])
 
     if (angle >= 0 && angle < 22.5) {
-        q = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y)).x;
-        r = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y)).x;
+        q = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y);
+        r = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y);
     } else  if(angle >= 22.5 && angle < 67.5) {
-        q = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y - 1)).x;
-        r = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y + 1)).x;
+        q = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y + 1);
+        r = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y - 1);
     } else if(angle >= 67.5 && angle < 112.5) {
-        q = read_imagef(intensityImage, sampler, (int2)(coords.x, coords.y - 1)).x;
-        r = read_imagef(intensityImage, sampler, (int2)(coords.x, coords.y + 1)).x;
+        q = READ_ORIENTATION_WITH_FALLBACK(coords.x, coords.y + 1);
+        r = READ_ORIENTATION_WITH_FALLBACK(coords.x, coords.y - 1);
     } else if(angle >= 112.5 && angle < 157.5) {
-        q = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y - 1)).x;
-        r = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y + 1)).x;
+        q = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y - 1);
+        r = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y + 1);
     } else if(angle >= 157.5 && angle <= 180.0) {
-        q = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y)).x;
-        r = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y)).x;
+        q = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y);
+        r = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y);
     }
 
-    float intensity = read_imagef(intensityImage, sampler, coords).x;
+    float intensity = intensityImage[coords.x + coords.y * get_global_size(0)];
     if (intensity >= q && intensity >= r) {
-        write_imagef(outputImage, coords, (float4)(intensity, 0.0f, 0.0f, 0.0f));
+        outputBuffer[coords.x + coords.y * get_global_size(0)] = intensity;
     } else {
-        write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
+        outputBuffer[coords.x + coords.y * get_global_size(0)] = 0.00f;
     }
 }
 
@@ -123,61 +126,47 @@ __kernel void edge_thinning(
 #define WEAK_EDGE_THRESHOLD 0.003f
 
 __kernel void double_thresholding(
-    __global float* inputImage,
-    __global float* outputImage
+        __global float *inputImage,
+        write_only image2d_t outputImage
 ) {
-    int colIndex = get_global_id(0);
-    int rowIndex = get_global_id(1);
-    int imageWidth = get_global_size(0);
-    int index = rowIndex * imageWidth + colIndex;
+    int2 coords = (int2)(get_global_id(0), get_global_id(1));
 
-    // Find globally max intensity
-
-    float intensity = inputImage[index];
+    float intensity = inputImage[coords.x + coords.y * get_global_size(0)];
     if (intensity >= STRONG_EDGE_THRESHOLD) {
-        outputImage[index] = STRONG_EDGE_VALUE;
+        write_imagef(outputImage, coords, (float4)(STRONG_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
     } else if (intensity >= WEAK_EDGE_THRESHOLD) {
-        outputImage[index] = WEAK_EDGE_VALUE;
+        write_imagef(outputImage, coords, (float4)(WEAK_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
     } else {
-        outputImage[index] = 0.0f;
+        write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
     }
 }
 
-#define CHECK_INDEX(index, imageWidth, imageHeight, fallback) ((index >= 0 && index < imageWidth * imageHeight) ? index : fallback)
 
 __kernel void edge_histeresis(
-        __global float *inputImage,
-        __global float *outputImage
+        read_only image2d_t inputImage,
+        write_only image2d_t outputImage
 ) {
-    int colIndex = get_global_id(0);
-    int rowIndex = get_global_id(1);
-    int imageWidth = get_global_size(0);
-    int imageHeight = get_global_size(1);
-    int index = rowIndex * imageWidth + colIndex;
+    int2 coords = (int2)(get_global_id(0), get_global_id(1));
+    float intensity = read_imagef(inputImage, sampler, coords).x;
 
-    if (inputImage[index] == STRONG_EDGE_VALUE) {
-        outputImage[index] = STRONG_EDGE_VALUE;
+    if (intensity == STRONG_EDGE_VALUE) {
+        write_imagef(outputImage, coords, (float4)(STRONG_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
         return;
     }
 
-    if (inputImage[index] == WEAK_EDGE_VALUE && (
-            inputImage[CHECK_INDEX(colIndex + 1 + rowIndex * imageWidth, imageWidth, imageHeight, index)] == 1.0f ||
-            inputImage[CHECK_INDEX(colIndex - 1 + rowIndex * imageWidth, imageWidth, imageHeight, index)] == 1.0f ||
-            inputImage[CHECK_INDEX(colIndex + (rowIndex + 1) * imageWidth, imageWidth, imageHeight, index)] == 1.0f ||
-            inputImage[CHECK_INDEX(colIndex + (rowIndex - 1) * imageWidth, imageWidth, imageHeight, index)] == 1.0f ||
-            inputImage[CHECK_INDEX(colIndex - 1 + (rowIndex - 1) * imageWidth, imageWidth, imageHeight, index)] ==
-            1.0f ||
-            inputImage[CHECK_INDEX(colIndex + 1 + (rowIndex + 1) * imageWidth, imageWidth, imageHeight, index)] ==
-            1.0f ||
-            inputImage[CHECK_INDEX(colIndex - 1 + (rowIndex - 1) * imageWidth, imageWidth, imageHeight, index)] ==
-            1.0f ||
-            inputImage[CHECK_INDEX(colIndex + 1 + (rowIndex - 1) * imageWidth, imageWidth, imageHeight, index)] ==
-            1.0f ||
-            inputImage[CHECK_INDEX(colIndex - 1 + (rowIndex + 1) * imageWidth, imageWidth, imageHeight, index)] == 1.0f
-    )) {
-        outputImage[colIndex + rowIndex * imageWidth] = WEAK_EDGE_VALUE;
+    if (intensity == WEAK_EDGE_VALUE && (
+            read_imagef(inputImage, sampler, (int2)(coords.x + 1, coords.y)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x - 1, coords.y)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x, coords.y + 1)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x, coords.y - 1)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x - 1, coords.y - 1)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x + 1, coords.y + 1)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x - 1, coords.y - 1)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x + 1, coords.y - 1)).x == STRONG_EDGE_VALUE ||
+            read_imagef(inputImage, sampler, (int2)(coords.x - 1, coords.y + 1)).x == STRONG_EDGE_VALUE)) {
+        write_imagef(outputImage, coords, (float4)(STRONG_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
         return;
     }
 
-    outputImage[colIndex + rowIndex * imageWidth] = 0.0f;
+    write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
 }

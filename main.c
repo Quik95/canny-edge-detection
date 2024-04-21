@@ -7,7 +7,7 @@
 #include <omp.h>
 #include <time.h>
 
-//#define WRITE_INTERMEDIATE_IMAGES
+#define WRITE_INTERMEDIATE_IMAGES
 
 static uint8_t *float_array_to_uint8_array(const float *in, uint8_t *out, uint32_t width, uint32_t height) {
     for (uint32_t i = 0; i < width * height; i++) {
@@ -81,7 +81,7 @@ int main() {
 
     printf("Using %d threads\n", omp_get_max_threads());
 
-    error = lodepng_decode24_file(&image, &width, &height, "/tmp/test_picture.png");
+    error = lodepng_decode24_file(&image, &width, &height, "lenna.png");
     if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
 
     // turn the image into a float array as it's easier to work with

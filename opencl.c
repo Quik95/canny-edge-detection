@@ -109,7 +109,7 @@ int main() {
     uint8_t *imageBuffer;
     uint32_t width, height;
 
-    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "lenna.png");
+    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "/tmp/data2.png");
     assert(error == 0);
 
     printf("Image width: %d height: %d\n", width, height);
@@ -147,10 +147,21 @@ int main() {
                                                     &grayscaleImageFormat,
                                                     &imageDesc, grayscaleAuxiliaryBuffer, &imageResult);
     assert(imageResult == CL_SUCCESS);
+
+    float *sobelIntensityBuffer = (float *) malloc(width * height * sizeof(float));
+    cl_mem sobelIntensityCLBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+                                                   width * height * sizeof(float), sobelIntensityBuffer, &imageResult);
+    assert(imageResult == CL_SUCCESS);
+
     float *sobelOrientationBuffer = (float *) malloc(width * height * sizeof(float));
-    cl_mem sobelOrientationImageBuffer = clCreateImage(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
-                                                       &grayscaleImageFormat,
-                                                       &imageDesc, sobelOrientationBuffer, &imageResult);
+    cl_mem sobelOrientationCLBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+                                                     width * height * sizeof(float), sobelOrientationBuffer,
+                                                     &imageResult);
+    assert(imageResult == CL_SUCCESS);
+
+    float *edgeThinningBuffer = (float *) malloc(width * height * sizeof(float));
+    cl_mem edgeThinningCLBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+                                                 width * height * sizeof(float), edgeThinningBuffer, &imageResult);
     assert(imageResult == CL_SUCCESS);
 
     struct timespec memoryBuffersEnd;
@@ -172,25 +183,25 @@ int main() {
 
     cl_kernel sobel = createOpenCLKernel(context, device, programSource, "sobel_filter");
     err = clSetKernelArg(sobel, 0, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
-    err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &auxiliaryImageBuffer);
-    err |= clSetKernelArg(sobel, 2, sizeof(cl_mem), &sobelOrientationImageBuffer);
+    err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &sobelIntensityCLBuffer);
+    err |= clSetKernelArg(sobel, 2, sizeof(cl_mem), &sobelOrientationCLBuffer);
     assert(err == CL_SUCCESS);
 
     cl_kernel edge_thinning = createOpenCLKernel(context, device, programSource, "edge_thinning");
-    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &auxiliaryImageBuffer);
-    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &sobelOrientationImageBuffer);
-    err |= clSetKernelArg(edge_thinning, 2, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
+    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &sobelIntensityCLBuffer);
+    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &sobelOrientationCLBuffer);
+    err |= clSetKernelArg(edge_thinning, 2, sizeof(cl_mem), &edgeThinningCLBuffer);
     assert(err == CL_SUCCESS);
-//
-//    cl_kernel double_thresholding = createOpenCLKernel(context, device, programSource, "double_thresholding");
-//    err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &colorImageBuffer);
-//    err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &auxiliaryBuffer);
-//    assert(err == CL_SUCCESS);
-//
-//    cl_kernel edge_histeresis = createOpenCLKernel(context, device, programSource, "edge_histeresis");
-//    err = clSetKernelArg(edge_histeresis, 0, sizeof(cl_mem), &auxiliaryBuffer);
-//    err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &colorImageBuffer);
-//    assert(err == CL_SUCCESS);
+
+    cl_kernel double_thresholding = createOpenCLKernel(context, device, programSource, "double_thresholding");
+    err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &edgeThinningCLBuffer);
+    err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
+    assert(err == CL_SUCCESS);
+
+    cl_kernel edge_histeresis = createOpenCLKernel(context, device, programSource, "edge_histeresis");
+    err = clSetKernelArg(edge_histeresis, 0, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
+    err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &auxiliaryImageBuffer);
+    assert(err == CL_SUCCESS);
 
     size_t globalWorkSize[2] = {width, height};
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
@@ -202,11 +213,11 @@ int main() {
                                                   nullptr, nullptr);
     kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, nullptr, 0,
                                                   nullptr, nullptr);
-//    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, nullptr,
-//                                                  0,
-//                                                  nullptr, nullptr);
-//    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, nullptr, 0,
-//                                                  nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, nullptr,
+                                                  0,
+                                                  nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, nullptr, 0,
+                                                  nullptr, nullptr);
     assert(kernelEnqueueResult == CL_SUCCESS);
 
 //    float *outputImageBuffer = convertToFloatArray(auxiliaryBuffer, 3 * width * height);
@@ -231,6 +242,21 @@ int main() {
     assert(err == CL_SUCCESS);
     struct timespec imageCopyEnd;
     clock_gettime(CLOCK_MONOTONIC, &imageCopyEnd);
+
+    float max = CL_FLT_MIN;
+    float min = CL_FLT_MAX;
+    for (size_t i = 0; i < width * height; i++) {
+        if (outputImageBuffer[i] > max) {
+            max = outputImageBuffer[i];
+        }
+        if (outputImageBuffer[i] < min) {
+            min = outputImageBuffer[i];
+        }
+    }
+
+    for (size_t i = 0; i < width * height; i++) {
+        outputImageBuffer[i] = (outputImageBuffer[i] - min) / (max - min);
+    }
 
 #define TIME_IN_SECONDS(start, end) ((double) (end.tv_sec - start.tv_sec) + (double) (end.tv_nsec - start.tv_nsec) / 1000000000)
 
