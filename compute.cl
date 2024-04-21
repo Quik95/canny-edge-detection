@@ -39,13 +39,11 @@ __kernel void gaussian_blur(
 }
 
 __kernel void sobel_filter(
-    __global float* inputImage,
-    __global float* outputImage
+        read_only image2d_t inputImage,
+        write_only image2d_t intensityImage,
+        write_only image2d_t orientationImage
 ) {
-    int colIndex = get_global_id(0);
-    int rowIndex = get_global_id(1);
-    int imageWidth = get_global_size(0);
-    int imageHeight = get_global_size(1);
+    int2 coords = (int2)(get_global_id(0), get_global_id(1));
 
     const float sobelKernelX[9] = {
         -1.0f, 0.0f, 1.0f,
@@ -60,21 +58,11 @@ __kernel void sobel_filter(
 
     float sobelX = 0.0f;
     float sobelY = 0.0f;
-
-    int index = rowIndex * imageWidth + colIndex;
     for (int i = -1; i <= 1; i++) {
         for (int j = -1; j <= 1; j++) {
-            int neighborCol = colIndex + j;
-            int neighborRow = rowIndex + i;
-
-            if (neighborCol >= 0 && neighborCol < imageWidth && neighborRow >= 0) {
-                int neighborIndex = neighborRow * imageWidth + neighborCol;
-                sobelX += inputImage[neighborIndex] * sobelKernelX[(i + 1) * 3 + (j + 1)];
-                sobelY += inputImage[neighborIndex] * sobelKernelY[(i + 1) * 3 + (j + 1)];
-            } else {
-                sobelX += inputImage[index] * sobelKernelX[(i + 1) * 3 + (j + 1)];
-                sobelY += inputImage[index] * sobelKernelY[(i + 1) * 3 + (j + 1)];
-            }
+            int2 neighborCoord = (int2)(coords.x + i, coords.y + j);
+            sobelX += read_imagef(inputImage, sampler, neighborCoord).x * sobelKernelX[(i + 1) * 3 + (j + 1)];
+            sobelY += read_imagef(inputImage, sampler, neighborCoord).x * sobelKernelY[(i + 1) * 3 + (j + 1)];
         }
     }
 
@@ -84,8 +72,11 @@ __kernel void sobel_filter(
     float orientationRounded = round(orientation / 45.0f) * 45.0f;
     orientation = fmod(orientationRounded + 180.0f, 180.0f);
 
-    outputImage[index] = clamp(sobelMagnitude, 0.0f, 1.0f);
-    outputImage[imageWidth * imageHeight + index] = clamp(orientation, 0.0f, 180.0f);
+    sobelMagnitude = clamp(sobelMagnitude, 0.0f, 1.0f);
+    orientation = clamp(orientation, 0.0f, 180.0f);
+
+    write_imagef(intensityImage, coords, (float4)(sobelMagnitude, 0.0f, 0.0f, 0.0f));
+    write_imagef(orientationImage, coords, (float4)(orientation, 0.0f, 0.0f, 0.0f));
 }
 
 __kernel void edge_thinning(
