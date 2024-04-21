@@ -175,11 +175,12 @@ int main() {
     err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &auxiliaryImageBuffer);
     err |= clSetKernelArg(sobel, 2, sizeof(cl_mem), &sobelOrientationImageBuffer);
     assert(err == CL_SUCCESS);
-//
-//    cl_kernel edge_thinning = createOpenCLKernel(context, device, programSource, "edge_thinning");
-//    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &auxiliaryBuffer);
-//    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &colorImageBuffer);
-//    assert(err == CL_SUCCESS);
+
+    cl_kernel edge_thinning = createOpenCLKernel(context, device, programSource, "edge_thinning");
+    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &auxiliaryImageBuffer);
+    err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &sobelOrientationImageBuffer);
+    err |= clSetKernelArg(edge_thinning, 2, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
+    assert(err == CL_SUCCESS);
 //
 //    cl_kernel double_thresholding = createOpenCLKernel(context, device, programSource, "double_thresholding");
 //    err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &colorImageBuffer);
@@ -199,8 +200,8 @@ int main() {
                                                   nullptr, nullptr);
     kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, nullptr, 0,
                                                   nullptr, nullptr);
-//    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, nullptr, 0,
-//                                                  nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, nullptr, 0,
+                                                  nullptr, nullptr);
 //    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, nullptr,
 //                                                  0,
 //                                                  nullptr, nullptr);
@@ -224,7 +225,7 @@ int main() {
     clock_gettime(CLOCK_MONOTONIC, &kernelComputeEnd);
 
     float *outputImageBuffer = (float *) malloc(width * height * sizeof(float));
-    err = clEnqueueReadImage(queue, sobelOrientationImageBuffer, CL_TRUE, origin, region, 0, 0, outputImageBuffer, 0,
+    err = clEnqueueReadImage(queue, auxiliaryImageBuffer, CL_TRUE, origin, region, 0, 0, outputImageBuffer, 0,
                              nullptr,
                              nullptr);
     assert(err == CL_SUCCESS);

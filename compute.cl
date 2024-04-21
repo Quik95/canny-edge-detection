@@ -80,64 +80,39 @@ __kernel void sobel_filter(
 }
 
 __kernel void edge_thinning(
-    __global float* inputImage,
-    __global float* outputImage
+        read_only image2d_t intensityImage,
+        read_only image2d_t orientationImage,
+        write_only image2d_t outputImage
 ) {
-    int colIndex = get_global_id(0);
-    int rowIndex = get_global_id(1);
-    int imageWidth = get_global_size(0);
-    int imageHeight = get_global_size(1);
-    int maxIndex = imageWidth * imageHeight;
-
+    int2 coords = (int2)(get_global_id(0), get_global_id(1));
+     
     float q = 255.0f;
     float r = 255.0f;
 
-    int angleIndex = rowIndex * imageWidth + colIndex + imageWidth * imageHeight;
-    float angle = inputImage[angleIndex];
+    float angle = read_imagef(orientationImage, sampler, coords).x;
 
     if (angle >= 0 && angle < 22.5) {
-        int qIndex = rowIndex * imageWidth + colIndex + 1;
-        int rIndex = rowIndex * imageWidth + colIndex - 1;
-        if (qIndex >= 0 && qIndex < maxIndex && rIndex >= 0 && rIndex < maxIndex) {
-            q = inputImage[qIndex];
-            r = inputImage[rIndex];
-        }
+        q = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y)).x;
+        r = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y)).x;
     } else  if(angle >= 22.5 && angle < 67.5) {
-        int qIndex = (rowIndex - 1) * imageWidth + colIndex - 1;
-        int rIndex = (rowIndex + 1) * imageWidth + colIndex + 1;
-        if (qIndex >= 0 && qIndex < maxIndex && rIndex >= 0 && rIndex < maxIndex) {
-            q = inputImage[qIndex];
-            r = inputImage[rIndex];
-        }
+        q = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y - 1)).x;
+        r = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y + 1)).x;
     } else if(angle >= 67.5 && angle < 112.5) {
-        int qIndex = (rowIndex - 1) * imageWidth + colIndex;
-        int rIndex = (rowIndex + 1) * imageWidth + colIndex;
-        if (qIndex >= 0 && qIndex < maxIndex && rIndex >= 0 && rIndex < maxIndex) {
-            q = inputImage[qIndex];
-            r = inputImage[rIndex];
-        }
+        q = read_imagef(intensityImage, sampler, (int2)(coords.x, coords.y - 1)).x;
+        r = read_imagef(intensityImage, sampler, (int2)(coords.x, coords.y + 1)).x;
     } else if(angle >= 112.5 && angle < 157.5) {
-        int qIndex = (rowIndex - 1) * imageWidth + colIndex + 1;
-        int rIndex = (rowIndex + 1) * imageWidth + colIndex - 1;
-        if (qIndex >= 0 && qIndex < maxIndex && rIndex >= 0 && rIndex < maxIndex) {
-            q = inputImage[qIndex];
-            r = inputImage[rIndex];
-        }
+        q = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y - 1)).x;
+        r = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y + 1)).x;
     } else if(angle >= 157.5 && angle <= 180.0) {
-        int qIndex = rowIndex * imageWidth + colIndex - 1;
-        int rIndex = rowIndex * imageWidth + colIndex + 1;
-        if (qIndex >= 0 && qIndex < maxIndex && rIndex >= 0 && rIndex < maxIndex) {
-            q = inputImage[qIndex];
-            r = inputImage[rIndex];
-        }
+        q = read_imagef(intensityImage, sampler, (int2)(coords.x - 1, coords.y)).x;
+        r = read_imagef(intensityImage, sampler, (int2)(coords.x + 1, coords.y)).x;
     }
 
-    int index = rowIndex * imageWidth + colIndex;
-    float intensity = inputImage[index];
+    float intensity = read_imagef(intensityImage, sampler, coords).x;
     if (intensity >= q && intensity >= r) {
-        outputImage[index] = intensity;
+        write_imagef(outputImage, coords, (float4)(intensity, 0.0f, 0.0f, 0.0f));
     } else {
-        outputImage[index] = 0.0f;
+        write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
     }
 }
 
