@@ -109,7 +109,7 @@ int main() {
     uint8_t *imageBuffer;
     uint32_t width, height;
 
-    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "/tmp/data2.png");
+    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "/tmp/test_picture.png");
     assert(error == 0);
 
     printf("Image width: %d height: %d\n", width, height);
@@ -275,12 +275,29 @@ int main() {
     error = lodepng_encode_file("/tmp/lena_out.png", outputImageByteArray, width, height, LCT_GREY, 8);
     assert(error == 0);
 
+    err = clReleaseMemObject(auxiliaryImageBuffer);
+    err |= clReleaseMemObject(colorImageBuffer);
+    err |= clReleaseMemObject(sobelIntensityCLBuffer);
+    err |= clReleaseMemObject(sobelOrientationCLBuffer);
+    err |= clReleaseMemObject(edgeThinningCLBuffer);
+    err |= clReleaseMemObject(auxiliaryGrayscaleBuffer);
+    err |= clReleaseMemObject(auxiliaryImageBuffer);
+    err |= clReleaseCommandQueue(queue);
+    err |= clReleaseKernel(grayscaleKernel);
+    err |= clReleaseKernel(gaussian);
+    err |= clReleaseKernel(sobel);
+    err |= clReleaseKernel(edge_thinning);
+    err |= clReleaseKernel(double_thresholding);
+    err |= clReleaseKernel(edge_histeresis);
+    // TODO: Refactor kernel creation
+    err |= clReleaseContext(context);
+    assert(err == CL_SUCCESS);
 
-//    free(outputImageByteArray);
+    free(outputImageByteArray);
     free(outputImageBuffer);
     free(imageBuffer);
-//    free(imageFloatBuffer);
-    free(programSource);
+    free(imageFloatBuffer);
+    free((void *) programSource);
 
     return 0;
 }
