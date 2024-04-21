@@ -20,11 +20,8 @@ float *convertToFloatArray(const uint8_t *array, size_t size) {
 
 uint8_t *convertToByteArray(const float *array, size_t size) {
     uint8_t *result = (uint8_t *) malloc(size * sizeof(uint8_t));
-    for (size_t i = 0; i < size; i += 4) {
+    for (size_t i = 0; i < size; i++) {
         result[i] = (uint8_t) (array[i] * 255.0f);
-        result[i + 1] = (uint8_t) (array[i + 1] * 255.0f);
-        result[i + 2] = (uint8_t) (array[i + 2] * 255.0f);
-        result[i + 3] = 255;
     }
     return result;
 }
@@ -67,7 +64,7 @@ cl_context createOpenCLContext(cl_device_id device) {
     return context;
 }
 
-cl_kernel createOpenCLKernel(cl_context context, cl_device_id device, const char *source, const char *kernelName) {
+cl_program createOpenCLProgram(cl_context context, cl_device_id device, const char *source) {
     size_t length = strlen(source);
     cl_int programResult;
     cl_program program = clCreateProgramWithSource(context, 1, (const char **) &source, &length, &programResult);
@@ -83,6 +80,10 @@ cl_kernel createOpenCLKernel(cl_context context, cl_device_id device, const char
         free(log);
     }
 
+    return program;
+}
+
+cl_kernel createOpenCLKernel(cl_program program, const char *kernelName) {
     cl_int kernelResult;
     cl_kernel kernel = clCreateKernel(program, kernelName, &kernelResult);
     assert(kernelResult == CL_SUCCESS);
@@ -122,6 +123,7 @@ int main() {
 
     cl_int commandQueueResult;
     cl_command_queue queue = clCreateCommandQueueWithProperties(context, device, nullptr, &commandQueueResult);
+    cl_program program = createOpenCLProgram(context, device, programSource);
     assert(commandQueueResult == CL_SUCCESS);
 
     struct timespec deviceSetupEnd;
@@ -171,34 +173,34 @@ int main() {
     size_t region[3] = {imageDesc.image_width, imageDesc.image_height, 1};
 
     cl_int err;
-    cl_kernel grayscaleKernel = createOpenCLKernel(context, device, programSource, "grayscale_image");
+    cl_kernel grayscaleKernel = createOpenCLKernel(program, "grayscale_image");
     err = clSetKernelArg(grayscaleKernel, 0, sizeof(cl_mem), &colorImageBuffer);
     err |= clSetKernelArg(grayscaleKernel, 1, sizeof(cl_mem), &auxiliaryImageBuffer);
     assert(err == CL_SUCCESS);
 
-    cl_kernel gaussian = createOpenCLKernel(context, device, programSource, "gaussian_blur");
+    cl_kernel gaussian = createOpenCLKernel(program, "gaussian_blur");
     err = clSetKernelArg(gaussian, 0, sizeof(cl_mem), &auxiliaryImageBuffer);
     err |= clSetKernelArg(gaussian, 1, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
     assert(err == CL_SUCCESS);
 
-    cl_kernel sobel = createOpenCLKernel(context, device, programSource, "sobel_filter");
+    cl_kernel sobel = createOpenCLKernel(program, "sobel_filter");
     err = clSetKernelArg(sobel, 0, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
     err |= clSetKernelArg(sobel, 1, sizeof(cl_mem), &sobelIntensityCLBuffer);
     err |= clSetKernelArg(sobel, 2, sizeof(cl_mem), &sobelOrientationCLBuffer);
     assert(err == CL_SUCCESS);
 
-    cl_kernel edge_thinning = createOpenCLKernel(context, device, programSource, "edge_thinning");
+    cl_kernel edge_thinning = createOpenCLKernel(program, "edge_thinning");
     err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &sobelIntensityCLBuffer);
     err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &sobelOrientationCLBuffer);
     err |= clSetKernelArg(edge_thinning, 2, sizeof(cl_mem), &edgeThinningCLBuffer);
     assert(err == CL_SUCCESS);
 
-    cl_kernel double_thresholding = createOpenCLKernel(context, device, programSource, "double_thresholding");
+    cl_kernel double_thresholding = createOpenCLKernel(program, "double_thresholding");
     err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &edgeThinningCLBuffer);
     err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
     assert(err == CL_SUCCESS);
 
-    cl_kernel edge_histeresis = createOpenCLKernel(context, device, programSource, "edge_histeresis");
+    cl_kernel edge_histeresis = createOpenCLKernel(program, "edge_histeresis");
     err = clSetKernelArg(edge_histeresis, 0, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
     err |= clSetKernelArg(edge_histeresis, 1, sizeof(cl_mem), &auxiliaryImageBuffer);
     assert(err == CL_SUCCESS);
@@ -243,21 +245,6 @@ int main() {
     struct timespec imageCopyEnd;
     clock_gettime(CLOCK_MONOTONIC, &imageCopyEnd);
 
-    float max = CL_FLT_MIN;
-    float min = CL_FLT_MAX;
-    for (size_t i = 0; i < width * height; i++) {
-        if (outputImageBuffer[i] > max) {
-            max = outputImageBuffer[i];
-        }
-        if (outputImageBuffer[i] < min) {
-            min = outputImageBuffer[i];
-        }
-    }
-
-    for (size_t i = 0; i < width * height; i++) {
-        outputImageBuffer[i] = (outputImageBuffer[i] - min) / (max - min);
-    }
-
 #define TIME_IN_SECONDS(start, end) ((double) (end.tv_sec - start.tv_sec) + (double) (end.tv_nsec - start.tv_nsec) / 1000000000)
 
     putc('\n', stdout);
@@ -268,10 +255,7 @@ int main() {
     printf("Total time: %.5f seconds\n", TIME_IN_SECONDS(start, imageCopyEnd));
     printf("Total time excluding device setup: %.5f seconds\n", TIME_IN_SECONDS(deviceSetupEnd, imageCopyEnd));
 
-    uint8_t *outputImageByteArray = malloc(width * height * sizeof(uint8_t));
-    for (size_t i = 0; i < width * height; i++) {
-        outputImageByteArray[i] = (uint8_t) (outputImageBuffer[i] * 255.0f);
-    }
+    uint8_t *outputImageByteArray = convertToByteArray(outputImageBuffer, width * height);
     error = lodepng_encode_file("/tmp/lena_out.png", outputImageByteArray, width, height, LCT_GREY, 8);
     assert(error == 0);
 
@@ -289,9 +273,15 @@ int main() {
     err |= clReleaseKernel(edge_thinning);
     err |= clReleaseKernel(double_thresholding);
     err |= clReleaseKernel(edge_histeresis);
-    // TODO: Refactor kernel creation
+    err |= clReleaseProgram(program);
     err |= clReleaseContext(context);
     assert(err == CL_SUCCESS);
+
+    free(sobelOrientationBuffer);
+    free(sobelIntensityBuffer);
+    free(edgeThinningBuffer);
+    free(grayscaleImageBuffer);
+    free(grayscaleAuxiliaryBuffer);
 
     free(outputImageByteArray);
     free(outputImageBuffer);
