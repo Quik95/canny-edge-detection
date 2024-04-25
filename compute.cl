@@ -1,11 +1,20 @@
 constant sampler_t
 sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_MIRRORED_REPEAT | CLK_FILTER_NEAREST;
 
+#define GTE_WITH_EPSILON(a, b) (a >= b - 0.0001f)
+#define LT_WITH_EPSILON(a, b) (a < b + 0.0001f)
+#define IN_RANGE_WITH_EPSILON(a, b, c) (GTE_WITH_EPSILON(a, b) && LT_WITH_EPSILON(a, c))
+
 __kernel void grayscale_image(
         read_only image2d_t inputImage,
         write_only image2d_t outputImage
 ){
     int2 coord = (int2)(get_global_id(0), get_global_id(1));
+    int2 imageSize = (int2)(get_image_width(inputImage), get_image_height(inputImage));
+    if (coord.x >= imageSize.x || coord.y >= imageSize.y) {
+        return;
+    }
+
     float4 pixel = read_imagef(inputImage, sampler, coord);
     float sum = 0.299f * pixel.x + 0.587f * pixel.y + 0.114f * pixel.z;
 
@@ -16,7 +25,11 @@ __kernel void gaussian_blur(
         read_only image2d_t inputImage,
         write_only image2d_t outputImage
 ){
-    int2 coord = (int2)(get_global_id(0), get_global_id(1));    
+    int2 coord = (int2)(get_global_id(0), get_global_id(1));
+    int2 imageSize = (int2)(get_image_width(inputImage), get_image_height(inputImage));
+    if (coord.x >= imageSize.x || coord.y >= imageSize.y) {
+        return;
+    }
 
     float newPixelValue = 0.0f;
     const float gaussianTable[25] = {
@@ -44,25 +57,29 @@ __kernel void sobel_filter(
         __global float *orientationImage
 ) {
     int2 coords = (int2)(get_global_id(0), get_global_id(1));
+    int2 imageSize = (int2)(get_image_width(inputImage), get_image_height(inputImage));
+    if (coords.x >= imageSize.x || coords.y >= imageSize.y) {
+        return;
+    }
 
-    const float sobelKernelX[9] = {
-        -1.0f, 0.0f, 1.0f,
-        -2.0f, 0.0f, 2.0f,
-        -1.0f, 0.0f, 1.0f
+    const float sobelKernelX[3][3] = {
+            {-1.0f, 0.0f, 1.0f},
+            {-2.0f, 0.0f, 2.0f},
+            {-1.0f, 0.0f, 1.0f}
     };
-    const float sobelKernelY[9] = {
-        -1.0f, -2.0f, -1.0f,
-        0.0f, 0.0f, 0.0f,
-        1.0f, 2.0f, 1.0f
+    const float sobelKernelY[3][3] = {
+            {1.0f,  2.0f,  1.0f},
+            {0.0f,  0.0f,  0.0f},
+            {-1.0f, -2.0f, -1.0f}
     };
 
     float sobelX = 0.0f;
     float sobelY = 0.0f;
     for (int i = -1; i <= 1; i++) {
         for (int j = -1; j <= 1; j++) {
-            int2 neighborCoord = (int2)(coords.x + i, coords.y + j);
-            sobelX += read_imagef(inputImage, sampler, neighborCoord).x * sobelKernelX[(i + 1) * 3 + (j + 1)];
-            sobelY += read_imagef(inputImage, sampler, neighborCoord).x * sobelKernelY[(i + 1) * 3 + (j + 1)];
+            int2 neighborCoord = (int2)(coords.x + j, coords.y + i);
+            sobelX += read_imagef(inputImage, sampler, neighborCoord).x * sobelKernelX[i + 1][j + 1];
+            sobelY += read_imagef(inputImage, sampler, neighborCoord).x * sobelKernelY[i + 1][j + 1];
         }
     }
 
@@ -72,6 +89,9 @@ __kernel void sobel_filter(
     orientation = orientation * (180.0f / M_PI);
     orientation = round(orientation / 45.0f) * 45.0f;
     orientation = fmod(orientation + 180.0f, 180.0f);
+    if (orientation < 0.0f) {
+        orientation += 180.0f;
+    }
 
     intensityImage[coords.x + coords.y * get_global_size(0)] = sobelMagnitude;
     orientationImage[coords.x + coords.y * get_global_size(0)] = orientation;
@@ -94,25 +114,25 @@ __kernel void edge_thinning(
 
 #define READ_ORIENTATION_WITH_FALLBACK(x, y) (intensityImage[CHECK_INDEX(x + y * get_global_size(0), get_global_size(0), get_global_size(1), angleIndex)])
 
-    if (angle >= 0 && angle < 22.5) {
+    if (IN_RANGE_WITH_EPSILON(angle, 0.0f, 22.5f)) {
         q = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y);
         r = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y);
-    } else  if(angle >= 22.5 && angle < 67.5) {
+    } else if (IN_RANGE_WITH_EPSILON(angle, 22.5f, 67.5f)) {
         q = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y + 1);
         r = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y - 1);
-    } else if(angle >= 67.5 && angle < 112.5) {
+    } else if (IN_RANGE_WITH_EPSILON(angle, 67.5f, 112.5f)) {
         q = READ_ORIENTATION_WITH_FALLBACK(coords.x, coords.y + 1);
         r = READ_ORIENTATION_WITH_FALLBACK(coords.x, coords.y - 1);
-    } else if(angle >= 112.5 && angle < 157.5) {
+    } else if (IN_RANGE_WITH_EPSILON(angle, 112.5f, 157.5f)) {
         q = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y - 1);
         r = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y + 1);
-    } else if(angle >= 157.5 && angle <= 180.0) {
+    } else {
         q = READ_ORIENTATION_WITH_FALLBACK(coords.x + 1, coords.y);
         r = READ_ORIENTATION_WITH_FALLBACK(coords.x - 1, coords.y);
     }
 
     float intensity = intensityImage[coords.x + coords.y * get_global_size(0)];
-    if (intensity >= q && intensity >= r) {
+    if (GTE_WITH_EPSILON(intensity, q) && GTE_WITH_EPSILON(intensity, r)) {
         outputBuffer[coords.x + coords.y * get_global_size(0)] = intensity;
     } else {
         outputBuffer[coords.x + coords.y * get_global_size(0)] = 0.00f;
@@ -122,20 +142,25 @@ __kernel void edge_thinning(
 #define STRONG_EDGE_VALUE 1.0f
 #define WEAK_EDGE_VALUE 0.33f
 
-#define STRONG_EDGE_THRESHOLD 0.12f
-#define WEAK_EDGE_THRESHOLD 0.003f
+#define STRONG_EDGE_THRESHOLD 0.38092937062
+#define WEAK_EDGE_THRESHOLD 0.138495206
 
 __kernel void double_thresholding(
         __global float *inputImage,
         write_only image2d_t outputImage
 ) {
     int2 coords = (int2)(get_global_id(0), get_global_id(1));
+    int2 imageSize = (int2)(get_image_width(outputImage), get_image_height(outputImage));
+    if (coords.x >= imageSize.x || coords.y >= imageSize.y) {
+        return;
+    }
 
     float intensity = inputImage[coords.x + coords.y * get_global_size(0)];
-    if (intensity >= STRONG_EDGE_THRESHOLD) {
+    if (GTE_WITH_EPSILON(intensity, STRONG_EDGE_THRESHOLD)) {
         write_imagef(outputImage, coords, (float4)(STRONG_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
-    } else if (intensity >= WEAK_EDGE_THRESHOLD) {
+    } else if (GTE_WITH_EPSILON(intensity, WEAK_EDGE_THRESHOLD)) {
         write_imagef(outputImage, coords, (float4)(WEAK_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
+        // write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
     } else {
         write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
     }
@@ -147,6 +172,11 @@ __kernel void edge_histeresis(
         write_only image2d_t outputImage
 ) {
     int2 coords = (int2)(get_global_id(0), get_global_id(1));
+    int2 imageSize = (int2)(get_image_width(inputImage), get_image_height(inputImage));
+    if (coords.x >= imageSize.x || coords.y >= imageSize.y) {
+        return;
+    }
+
     float intensity = read_imagef(inputImage, sampler, coords).x;
 
     if (intensity == STRONG_EDGE_VALUE) {

@@ -110,7 +110,7 @@ int main() {
     uint8_t *imageBuffer;
     uint32_t width, height;
 
-    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "/tmp/test_picture.png");
+    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "./lenna.png");
     assert(error == 0);
 
     printf("Image width: %d height: %d\n", width, height);
@@ -134,7 +134,7 @@ int main() {
     cl_image_desc imageDesc = {.image_type = CL_MEM_OBJECT_IMAGE2D, .image_width = width, .image_height = height};
 
     cl_int imageResult;
-    cl_mem colorImageBuffer = clCreateImage(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, &imageFormat, &imageDesc,
+    cl_mem colorImageBuffer = clCreateImage(context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, &imageFormat, &imageDesc,
                                             imageFloatBuffer, &imageResult);
     printf("image result: %d\n", imageResult);
     assert(imageResult == CL_SUCCESS);
@@ -190,7 +190,7 @@ int main() {
     assert(err == CL_SUCCESS);
 
     cl_kernel edge_thinning = createOpenCLKernel(program, "edge_thinning");
-    err = clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &sobelIntensityCLBuffer);
+    err | clSetKernelArg(edge_thinning, 0, sizeof(cl_mem), &sobelIntensityCLBuffer);
     err |= clSetKernelArg(edge_thinning, 1, sizeof(cl_mem), &sobelOrientationCLBuffer);
     err |= clSetKernelArg(edge_thinning, 2, sizeof(cl_mem), &edgeThinningCLBuffer);
     assert(err == CL_SUCCESS);
@@ -206,32 +206,26 @@ int main() {
     assert(err == CL_SUCCESS);
 
     size_t globalWorkSize[2] = {width, height};
+//    size_t localWorkSize[2] = {0, 0};
+    void *localWorkSize = nullptr;
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
-                                                        nullptr, 0,
+                                                        localWorkSize, 0,
                                                         nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, gaussian, 2, nullptr, globalWorkSize, nullptr, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, gaussian, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, nullptr, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, sobel, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, nullptr, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, nullptr,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, localWorkSize,
                                                   0,
                                                   nullptr, nullptr);
-    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, nullptr, 0,
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_histeresis, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
+    if (kernelEnqueueResult != CL_SUCCESS) {
+        printf("Error: %d\n", kernelEnqueueResult);
+    }
     assert(kernelEnqueueResult == CL_SUCCESS);
-
-//    float *outputImageBuffer = convertToFloatArray(auxiliaryBuffer, 3 * width * height);
-//    cl_int readResult = clEnqueueReadBuffer(queue, colorImageBuffer, CL_TRUE, 0,
-//                                            width * height * sizeof(float),
-//                                            outputImageBuffer, 0, nullptr, nullptr);
-//    cl_int readResult = clEnqueueReadBuffer(queue, auxiliaryImageBuffer, CL_TRUE, 0,
-//                                            3 * width * height * sizeof(float),
-//                                            outputImageBuffer, 0, nullptr, nullptr);
-
-//    assert(readResult == CL_SUCCESS);
-
 
     clFinish(queue);
     struct timespec kernelComputeEnd;
@@ -241,6 +235,8 @@ int main() {
     err = clEnqueueReadImage(queue, auxiliaryImageBuffer, CL_TRUE, origin, region, 0, 0, outputImageBuffer, 0,
                              nullptr,
                              nullptr);
+//    err = clEnqueueReadBuffer(queue, edgeThinningCLBuffer, CL_TRUE, 0, width * height * sizeof(float),
+//                              outputImageBuffer, 0, nullptr, nullptr);
     assert(err == CL_SUCCESS);
     struct timespec imageCopyEnd;
     clock_gettime(CLOCK_MONOTONIC, &imageCopyEnd);
