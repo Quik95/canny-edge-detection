@@ -74,8 +74,9 @@ cl_program createOpenCLProgram(cl_context context, cl_device_id device, const ch
     if (programBuildResult != CL_SUCCESS) {
         size_t logSize;
         clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-        char *log = (char *) malloc(logSize);
+        char *log = (char *) malloc(logSize + 1);
         clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, log, nullptr);
+        log[logSize] = '\0';
         printf("Build log: %s\n", log);
         free(log);
     }
