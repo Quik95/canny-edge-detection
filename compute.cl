@@ -87,7 +87,7 @@ __kernel void sobel_filter(
 
     float orientation = atan2(sobelY, sobelX);
     orientation = orientation * (180.0f / M_PI);
-    orientation = round(orientation / 45.0f) * 45.0f;
+    orientation = round(orientation / 22.5f) * 22.5f;
     orientation = fmod(orientation + 180.0f, 180.0f);
     if (orientation < 0.0f) {
         orientation += 180.0f;
@@ -139,15 +139,46 @@ __kernel void edge_thinning(
     }
 }
 
+__kernel void find_max_intensity(
+        __global float *intensityBuffer,
+        __global float *result,
+        const int bufferSize
+) {
+    int globalIndex = get_global_id(0);
+
+    float localMax = intensityBuffer[globalIndex];
+
+    for (int i = globalIndex + get_global_size(0); i < bufferSize; i += get_global_size(0)) {
+        localMax = max(localMax, intensityBuffer[i]);
+    }
+
+    __local float localMaxBuffer[256];
+    localMaxBuffer[get_local_id(0)] = localMax;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    for (int stride = get_local_size(0) / 2; stride > 0; stride /= 2) {
+        if (get_local_id(0) < stride) {
+            localMaxBuffer[get_local_id(0)] = max(localMaxBuffer[get_local_id(0)],
+                                                  localMaxBuffer[get_local_id(0) + stride]);
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    if (get_local_id(0) == 0) {
+        result[get_group_id(0)] = localMaxBuffer[0];
+    }
+}
+
 #define STRONG_EDGE_VALUE 1.0f
 #define WEAK_EDGE_VALUE 0.33f
 
-#define STRONG_EDGE_THRESHOLD 0.38092937062
-#define WEAK_EDGE_THRESHOLD 0.138495206
+#define LOW_THRESHOLD_RATIO 0.727f
+#define HIGH_THRESHOLD_RATIO 0.765f
 
 __kernel void double_thresholding(
         __global float *inputImage,
-        write_only image2d_t outputImage
+        write_only image2d_t outputImage,
+        const float maxIntensityValue
 ) {
     int2 coords = (int2)(get_global_id(0), get_global_id(1));
     int2 imageSize = (int2)(get_image_width(outputImage), get_image_height(outputImage));
@@ -155,12 +186,14 @@ __kernel void double_thresholding(
         return;
     }
 
+    float high_threshold = maxIntensityValue * HIGH_THRESHOLD_RATIO;
+    float low_threshold = high_threshold * LOW_THRESHOLD_RATIO;
+
     float intensity = inputImage[coords.x + coords.y * get_global_size(0)];
-    if (GTE_WITH_EPSILON(intensity, STRONG_EDGE_THRESHOLD)) {
+    if (GTE_WITH_EPSILON(intensity, high_threshold)) {
         write_imagef(outputImage, coords, (float4)(STRONG_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
-    } else if (GTE_WITH_EPSILON(intensity, WEAK_EDGE_THRESHOLD)) {
+    } else if (GTE_WITH_EPSILON(intensity, low_threshold)) {
         write_imagef(outputImage, coords, (float4)(WEAK_EDGE_VALUE, 0.0f, 0.0f, 0.0f));
-        // write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
     } else {
         write_imagef(outputImage, coords, (float4)(0.0f, 0.0f, 0.0f, 0.0f));
     }

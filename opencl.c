@@ -166,6 +166,10 @@ int main() {
                                                  width * height * sizeof(float), edgeThinningBuffer, &imageResult);
     assert(imageResult == CL_SUCCESS);
 
+    float *maxIntensityValueBuffer = (float *) malloc(sizeof(float));
+    cl_mem maxIntensityValueCLBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR,
+                                                      sizeof(float), maxIntensityValueBuffer, &imageResult);
+
     struct timespec memoryBuffersEnd;
     clock_gettime(CLOCK_MONOTONIC, &memoryBuffersEnd);
 
@@ -195,6 +199,13 @@ int main() {
     err |= clSetKernelArg(edge_thinning, 2, sizeof(cl_mem), &edgeThinningCLBuffer);
     assert(err == CL_SUCCESS);
 
+    cl_kernel max_intensity = createOpenCLKernel(program, "find_max_intensity");
+    err = clSetKernelArg(max_intensity, 0, sizeof(cl_mem), &sobelIntensityCLBuffer);
+    err |= clSetKernelArg(max_intensity, 1, sizeof(cl_mem), &maxIntensityValueCLBuffer);
+    cl_int bufferSize = width * height;
+    err |= clSetKernelArg(max_intensity, 2, sizeof(cl_int), &bufferSize);
+    assert(err == CL_SUCCESS);
+
     cl_kernel double_thresholding = createOpenCLKernel(program, "double_thresholding");
     err = clSetKernelArg(double_thresholding, 0, sizeof(cl_mem), &edgeThinningCLBuffer);
     err |= clSetKernelArg(double_thresholding, 1, sizeof(cl_mem), &auxiliaryGrayscaleBuffer);
@@ -206,6 +217,7 @@ int main() {
     assert(err == CL_SUCCESS);
 
     size_t globalWorkSize[2] = {width, height};
+    size_t maxIntensityKernelWorkSize = width * height;
 //    size_t localWorkSize[2] = {0, 0};
     void *localWorkSize = nullptr;
     cl_int kernelEnqueueResult = clEnqueueNDRangeKernel(queue, grayscaleKernel, 2, nullptr, globalWorkSize,
@@ -217,6 +229,16 @@ int main() {
                                                   nullptr, nullptr);
     kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, edge_thinning, 2, nullptr, globalWorkSize, localWorkSize, 0,
                                                   nullptr, nullptr);
+    kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, max_intensity, 1, nullptr, &maxIntensityKernelWorkSize,
+                                                  nullptr, 0, nullptr,
+                                                  nullptr);
+
+    cl_float maxIntensityValue;
+    err = clEnqueueReadBuffer(queue, maxIntensityValueCLBuffer, CL_TRUE, 0, sizeof(cl_float), &maxIntensityValue, 0,
+                              nullptr, nullptr);
+    assert(err == CL_SUCCESS);
+
+    clSetKernelArg(double_thresholding, 2, sizeof(cl_float), &maxIntensityValue);
     kernelEnqueueResult |= clEnqueueNDRangeKernel(queue, double_thresholding, 2, nullptr, globalWorkSize, localWorkSize,
                                                   0,
                                                   nullptr, nullptr);
@@ -267,6 +289,7 @@ int main() {
     err |= clReleaseKernel(gaussian);
     err |= clReleaseKernel(sobel);
     err |= clReleaseKernel(edge_thinning);
+    err |= clReleaseKernel(max_intensity);
     err |= clReleaseKernel(double_thresholding);
     err |= clReleaseKernel(edge_histeresis);
     err |= clReleaseProgram(program);
