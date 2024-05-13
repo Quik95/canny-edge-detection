@@ -104,14 +104,47 @@ const char *loadProgramSource(const char *filename) {
     return programSource;
 }
 
-int main() {
+int main(int argc, char **argv) {
     printf("We are running OpenCL code\n");
-    const char *programSource = loadProgramSource("compute.cl");
+
+    char inputImagePath[1024] = {0};
+    char outputImagePath[1024] = {0};
+    char kernelPath[1024] = {0};
+
+    for (int i = 0; i < argc; i++) {
+        printf("Argument %d: %s\n", i, argv[i]);
+    }
+
+    switch (argc) {
+        case 2:
+            strcpy(inputImagePath, "lenna.png");
+            strcpy(outputImagePath, "/tmp/lena_out.png");
+            break;
+        case 3:
+            assert(strstr(argv[2], ".png") != nullptr);
+            strcpy(inputImagePath, argv[2]);
+            strcpy(outputImagePath, "/tmp/lena_out.png");
+            break;
+        case 4:
+            assert(strstr(argv[3], ".png") != nullptr);
+            assert(strstr(argv[4], ".png") != nullptr);
+            strcpy(inputImagePath, argv[2]);
+            strcpy(outputImagePath, argv[3]);
+            break;
+        default:
+            printf("Usage: %s [input_image_path] [output_image_path]\n", argv[0]);
+            return 1;
+    }
+    strcpy(kernelPath, argv[1]);
+
+    const char *programSource = loadProgramSource(kernelPath);
+    printf("Input image path: %s\n", inputImagePath);
+    printf("Output image path: %s\n", outputImagePath);
 
     uint8_t *imageBuffer;
     uint32_t width, height;
 
-    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, "./lenna.png");
+    uint32_t error = lodepng_decode32_file(&imageBuffer, &width, &height, inputImagePath);
     assert(error == 0);
 
     printf("Image width: %d height: %d\n", width, height);
@@ -275,7 +308,7 @@ int main() {
     printf("Total time excluding device setup: %.5f seconds\n", TIME_IN_SECONDS(deviceSetupEnd, imageCopyEnd));
 
     uint8_t *outputImageByteArray = convertToByteArray(outputImageBuffer, width * height);
-    error = lodepng_encode_file("/tmp/lena_out.png", outputImageByteArray, width, height, LCT_GREY, 8);
+    error = lodepng_encode_file(outputImagePath, outputImageByteArray, width, height, LCT_GREY, 8);
     assert(error == 0);
 
     err = clReleaseMemObject(auxiliaryImageBuffer);
@@ -303,6 +336,7 @@ int main() {
     free(grayscaleImageBuffer);
     free(grayscaleAuxiliaryBuffer);
 
+    free(maxIntensityValueBuffer);
     free(outputImageByteArray);
     free(outputImageBuffer);
     free(imageBuffer);

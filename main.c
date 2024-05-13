@@ -6,6 +6,7 @@
 #include <math.h>
 #include <omp.h>
 #include <time.h>
+#include <assert.h>
 
 #define WRITE_INTERMEDIATE_IMAGES
 
@@ -74,15 +75,42 @@ static const float sobel_kernel_y[3][3] = {
         {-1, -2, -1}
 };
 
-int main() {
+int main(int argc, char **argv) {
     uint32_t error;
     uint8_t *image;
     uint32_t width, height;
 
+    char inputImagePath[1024] = {0};
+    char outputImagePath[1024] = {0};
+
+    switch (argc) {
+        case 1:
+            strcpy(inputImagePath, "lenna.png");
+            strcpy(outputImagePath, "/tmp/lena_out.png");
+            break;
+        case 2:
+            assert(strstr(argv[1], ".png") != nullptr);
+            strcpy(inputImagePath, argv[1]);
+            strcpy(outputImagePath, "/tmp/lena_out.png");
+            break;
+        case 3:
+            assert(strstr(argv[2], ".png") != nullptr);
+            assert(strstr(argv[3], ".png") != nullptr);
+            strcpy(inputImagePath, argv[1]);
+            strcpy(outputImagePath, argv[2]);
+            break;
+        default:
+            printf("Usage: %s [input_image_path] [output_image_path]\n", argv[0]);
+            return 1;
+    }
+
+    printf("Input image path: %s\n", inputImagePath);
+    printf("Output image path: %s\n", outputImagePath);
     printf("Using %d threads\n", omp_get_max_threads());
 
-    error = lodepng_decode24_file(&image, &width, &height, "lenna.png");
+    error = lodepng_decode24_file(&image, &width, &height, inputImagePath);
     if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
+    printf("The loaded image has dimensions %u x %u\n", width, height);
 
     // turn the image into a float array as it's easier to work with
     float *image_float = malloc(width * height * 3 * sizeof(float));
@@ -93,7 +121,6 @@ int main() {
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    printf("The loaded image has dimensions %u x %u\n", width, height);
     image_float = convert_to_grayscale(image_float, width, height);
     image_float = apply_gaussian_filter(image_float, width, height);
     image_float = apply_sobel_filter(image_float, width, height);
@@ -104,10 +131,11 @@ int main() {
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
 #define TIME_IN_SECONDS(start, end) ((double) (end.tv_sec - start.tv_sec) + (double) (end.tv_nsec - start.tv_nsec) / 1000000000)
+
     printf("Time taken: %f seconds\n", TIME_IN_SECONDS(start, end));
 
     image = float_array_to_uint8_array(image_float, image, width, height);
-    error = lodepng_encode_file("/tmp/lena_out.png", image, width, height, LCT_GREY, 8);
+    error = lodepng_encode_file(outputImagePath, image, width, height, LCT_GREY, 8);
     if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
 
     free(image_float);
