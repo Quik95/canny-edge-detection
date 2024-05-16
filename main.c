@@ -8,7 +8,7 @@
 #include <time.h>
 #include <assert.h>
 
-#define WRITE_INTERMEDIATE_IMAGES
+// #define WRITE_INTERMEDIATE_IMAGES
 
 static uint8_t *float_array_to_uint8_array(const float *in, uint8_t *out, uint32_t width, uint32_t height) {
     for (uint32_t i = 0; i < width * height; i++) {
@@ -162,7 +162,7 @@ float *apply_gaussian_filter(float *image, uint32_t width, uint32_t height) {
     float *new_image = malloc(width * height * sizeof(float));
     int kernel_radius = GAUSSIAN_KERNEL_SIZE / 2;
 
-#pragma omp parallel for default(none) shared(image, new_image, width, height, kernel_radius, gaussian_kernel)
+#pragma omp parallel for default(none) shared(image, new_image, width, height, kernel_radius, gaussian_kernel) collapse(2)
     for (int y = 0; y < (int) height; y++) {
         for (int x = 0; x < (int) width; x++) {
             float new_pixel_value = 0.0f;
@@ -192,7 +192,7 @@ float *apply_gaussian_filter(float *image, uint32_t width, uint32_t height) {
 float *apply_sobel_filter(float *image, uint32_t width, uint32_t height) {
     float *new_image = malloc(width * height * 2 * sizeof(float));
 
-#pragma omp parallel for default(none) shared(image, new_image, width, height, sobel_kernel_x, sobel_kernel_y)
+#pragma omp parallel for default(none) shared(image, new_image, width, height, sobel_kernel_x, sobel_kernel_y) collapse(2)
     for (int y = 0; y < (int) height; y++) {
         for (int x = 0; x < (int) width; x++) {
             float sobel_x = 0.0f;
@@ -231,7 +231,7 @@ float *apply_sobel_filter(float *image, uint32_t width, uint32_t height) {
 float *apply_edge_thinning(float *image, uint32_t width, uint32_t height) {
     float *new_image = malloc(width * height * sizeof(float));
 
-#pragma omp parallel for default(none) shared(image, new_image, width, height)
+#pragma omp parallel for default(none) shared(image, new_image, width, height) collapse(2)
     for (int y = 0; y < (int) height; y++) {
         for (int x = 0; x < (int) width; x++) {
             float q = 255.0f;
@@ -305,7 +305,7 @@ float *apply_double_threshold(float *image, uint32_t width, uint32_t height) {
 float *apply_edge_histeresis(float *image, uint32_t width, uint32_t height) {
     float *new_image = malloc(width * height * sizeof(float));
 
-#pragma omp parallel for default(none) shared(image, new_image, width, height)
+#pragma omp parallel for default(none) shared(image, new_image, width, height) collapse(2)
     for (int y = 0; y < (int) height; y++) {
         for (int x = 0; x < (int) width; x++) {
             if (image[y * width + x] == WEAK_EDGE_PIXEL) {
